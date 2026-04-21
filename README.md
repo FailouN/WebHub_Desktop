@@ -9,10 +9,11 @@
 
 ## 📸 Превью
 <div align="center">
-  <video width="100%" controls autoplay loop muted>
-    <source src="https://github.com/FailouN/WebHub_Desktop/releases/download/v1.0.1/Video.Project.1.mp4" type="video/mp4">
-  </video>
-</div
+  <video src="https://github.com/user-attachments/assets/9916e83d-a7cc-4fde-a277-8eac86a5ca5a" width="100%" controls autoplay loop muted></video>
+</div>
+https://github.com/user-attachments/assets/9916e83d-a7cc-4fde-a277-8eac86a5ca5a
+
+
 
 ## 📸 Скриншоты
 **Стартовый экран**
