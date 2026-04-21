@@ -8,12 +8,7 @@
 Оптимизирован под работу с ограниченным набором сервисов.
 
 ## 📸 Превью
-<div align="center">
-  <video width="100%" controls autoplay loop muted style="border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.5);">
-    <source src="https://github.com/FailouN/WebHub_Desktop/releases/download/v1.0.1/Video.Project.1.mp4" type="video/mp4">
-    Ваш браузер не поддерживает видео.
-  </video>
-</div>
+https://github.com/FailouN/WebHub_Desktop/releases/download/v1.0.1/Video.Project.1.mp4
 
 ## 📸 Скриншоты
 **Стартовый экран**
