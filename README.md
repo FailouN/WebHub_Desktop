@@ -8,15 +8,7 @@
 Оптимизирован под работу с ограниченным набором сервисов.
 
 ## 📸 Превью
-<div align="center">
-  <video src="https://github.com/user-attachments/assets/9916e83d-a7cc-4fde-a277-8eac86a5ca5a" width="100%" controls autoplay loop muted></video>
-</div>
-
-
 <video src="https://github.com/user-attachments/assets/9916e83d-a7cc-4fde-a277-8eac86a5ca5a" width="320" height="240" controls></video>
-
-
-
 
 ## 📸 Скриншоты
 **Стартовый экран**
