@@ -11,9 +11,10 @@
 <div align="center">
   <video src="https://github.com/user-attachments/assets/9916e83d-a7cc-4fde-a277-8eac86a5ca5a" width="100%" controls autoplay loop muted></video>
 </div>
-https://github.com/user-attachments/assets/9916e83d-a7cc-4fde-a277-8eac86a5ca5a
 
-<iframe width="560" height="315" src="https://github.com/user-attachments/assets/9916e83d-a7cc-4fde-a277-8eac86a5ca5a" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+
+<video src="https://github.com/user-attachments/assets/9916e83d-a7cc-4fde-a277-8eac86a5ca5a" width="320" height="240" controls></video>
+
 
 
 
