@@ -60,6 +60,6 @@
 3. Установите и запустите приложение.
 
 ### Для разработчиков
-1. Склонируйте репозиторий: `git clone https://github.com/FailouN/my-dashboard-app`
+1. Склонируйте репозиторий: `git clone https://github.com/FailouN/WebHub_Desktop  `
 2. Установите зависимости: `npm install`
 3. Запуск: `npm start`
