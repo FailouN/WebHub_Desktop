@@ -1,5 +1,8 @@
-EN
-# WebHub Desktop 🚀
+🇺🇸 [English](#english) | 🇷🇺 [Русский](#russian)
+
+# English
+
+# WebHub Desktop
 
 <p align="center">
   <img src="https://github.com/user-attachments/assets/476778a8-b5df-4411-a308-6b1cc9b2d1ee" width="900" alt="WebHub Desktop Preview">
@@ -208,7 +211,8 @@ If WebHub is useful to you — consider giving it a ⭐
 
 MIT
 
-RU
+# Russian
+
 # WebHub Desktop 🚀
 
 
