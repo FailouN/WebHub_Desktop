@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body {
+            margin: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: white;
+            background: rgba(40, 40, 40, 0.95); /* Полупрозрачный фон */
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+        }
+
+        .header {
+            padding: 20px;
+            text-align: center;
+            font-size: 18px;
+            font-weight: 500;
+        }
+
+        .tabs {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .tab {
+            padding: 8px 16px;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            color: #aaa;
+            transition: 0.3s;
+        }
+
+        .tab.active {
+            color: white;
+            border-bottom: 2px solid #5865F2; /* Цвет Discord */
+        }
+
+        .content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0 20px;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 15px;
+            align-content: start;
+        }
+
+        /* Кастомный скроллбар */
+        .content::-webkit-scrollbar { width: 6px; }
+        .content::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 15px; }
+
+        .source-card {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 15px;
+            overflow: hidden;
+            cursor: pointer;
+            transition: 0.2s;
+            border: 2px solid transparent;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .source-card:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .source-card.selected {
+            border-color: #5865F2;
+            background: rgba(88, 101, 242, 0.2);
+        }
+
+        .thumbnail {
+            width: 100%;
+            aspect-ratio: 16/9;
+            object-fit: cover;
+            background: #000;
+        }
+
+        .info {
+            padding: 10px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+        }
+
+        .info img { width: 16px; height: 16px; }
+        .info span {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .footer {
+            padding: 20px;
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            background: rgba(0, 0, 0, 0.2);
+        }
+
+        button {
+            padding: 8px 20px;
+            border-radius: 15px;
+            border: none;
+            cursor: pointer;
+            font-weight: 500;
+            transition: 0.2s;
+        }
+
+        .btn-cancel { background: transparent; color: white; }
+        .btn-cancel:hover { background: rgba(255,255,255,0.1); }
+
+        .btn-share { background: #5865F2; color: white; }
+        .btn-share:hover { background: #4752C4; }
+        .btn-share:disabled { background: #3c45a5; color: #888; cursor: not-allowed; }
+    </style>
+</head>
+<body>
+    <div class="header">Выберите, чем поделиться</div>
+    
+    <div class="tabs">
+        <div class="tab active" id="tab-window" onclick="switchTab('window')">Окна</div>
+        <div class="tab" id="tab-screen" onclick="switchTab('screen')">Весь экран</div>
+    </div>
+
+    <div class="content" id="source-list">
+        </div>
+
+    <div class="footer">
+        <button class="btn-cancel" onclick="cancel()">Отмена</button>
+        <button class="btn-share" id="share-btn" disabled onclick="share()">Поделиться</button>
+    </div>
+
+    <script>
+        const { ipcRenderer } = require('electron');
+        let allSources = [];
+        let currentTab = 'window';
+        let selectedId = null;
+
+        ipcRenderer.on('set-sources', (event, sources) => {
+            allSources = sources;
+            renderSources();
+        });
+
+        function switchTab(tab) {
+            currentTab = tab;
+            document.getElementById('tab-window').classList.toggle('active', tab === 'window');
+            document.getElementById('tab-screen').classList.toggle('active', tab === 'screen');
+            renderSources();
+        }
+
+        function renderSources() {
+            const container = document.getElementById('source-list');
+            container.innerHTML = '';
+            
+            const filtered = allSources.filter(s => s.type === currentTab);
+            
+            filtered.forEach(source => {
+                const card = document.createElement('div');
+                card.className = `source-card ${selectedId === source.id ? 'selected' : ''}`;
+                card.onclick = () => selectSource(source.id);
+                
+                card.innerHTML = `
+                    <img src="${source.thumbnail}" class="thumbnail">
+                    <div class="info">
+                        ${source.icon ? `<img src="${source.icon}">` : ''}
+                        <span>${source.name}</span>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        function selectSource(id) {
+            selectedId = id;
+            document.getElementById('share-btn').disabled = false;
+            renderSources();
+        }
+
+        function share() {
+            ipcRenderer.send('source-selected', selectedId);
+        }
+
+        function cancel() {
+            ipcRenderer.send('source-selected', null);
+        }
+    </script>
+</body>
+</html>

@@ -401,11 +401,11 @@ async function createWindow() {
     const win = new BrowserWindow({
         width: 1600,
         height: 900,
-        frame: false, // ЭТО УБИРАЕТ СТАНДАРТНУЮ ШАПКУ
+        frame: false, 
         backgroundColor: '#00000000',
-        titleBarStyle: 'hidden', // Помогает сохранить кнопки управления, если нужно, но frame: false надежнее
-        resizable: true,    // чтобы можно было растягивать окно
-        autoHideMenuBar: true, // Меню скрыто, появляется по нажатию Alt
+        titleBarStyle: 'hidden',
+        resizable: true, 
+        autoHideMenuBar: true,
         webPreferences: {
             webrtcIPHandlingPolicy: 'disable_non_proxied_udp',
             autoplayPolicy: 'no-user-gesture-required',
@@ -423,23 +423,16 @@ async function createWindow() {
         }
     });
 
-setupBlocker(session.defaultSession);
+const ses = win.webContents.session;
 
-
-// Оставляем Alt в before-input-event, так как он специфичен для окна
-win.webContents.on('before-input-event', (event, input) => {
-    if (input.type === 'keyDown') {
-        if (input.code === 'AltLeft' || input.code === 'AltRight') {
-            event.preventDefault(); 
-            const isMenuVisible = win.isMenuBarVisible();
-            win.setMenuBarVisibility(!isMenuVisible);
-            
-            if (!isMenuVisible) {
-                win.focus();
-            }
-        }
+    // 1. Инициализируем блокировщик (если включен)
+    if (isAdBlockEnabled) {
+        setupBlocker(ses);
     }
-});
+
+    // 2. Инициализируем захват экрана (наш новый красивый модуль)
+    setupScreenShare(ses);
+
 
      setUserAgent('desktop');
 
@@ -449,7 +442,7 @@ win.webContents.on('before-input-event', (event, input) => {
 
 
 
-    setupScreenShare(session.defaultSession);      
+   
 }
 
 // Авторизация на прокси
@@ -523,6 +516,27 @@ app.whenReady().then(async () => {
             focusedWin.webContents.send('fullscreen-toggled', state);
         }
     });
+    
+    // Alt+F7 - Play/Pause
+globalShortcut.register('Alt+F7', () => {
+    BrowserWindow.getAllWindows().forEach(win => {
+        win.webContents.send('execute-yandex-play');
+    });
+});
+
+// Alt+F6 - Next
+globalShortcut.register('Alt+F6', () => {
+    BrowserWindow.getAllWindows().forEach(win => {
+        win.webContents.send('execute-yandex-next');
+    });
+});
+
+// Alt+F5 - Previous
+globalShortcut.register('Alt+F5', () => {
+    BrowserWindow.getAllWindows().forEach(win => {
+        win.webContents.send('execute-yandex-prev');
+    });
+});
 
     // Alt + Ё: Автоответ в Дискорде
     globalShortcut.register('Alt+`', () => {
@@ -532,21 +546,12 @@ app.whenReady().then(async () => {
         console.log('Global Hotkey: Alt+Ё pressed');
     });
 
-    // Alt + F3: Глобальный переключатель музыки/видео
-    globalShortcut.register('Alt+F3', () => {
-        // Лучше отправлять всем окнам или конкретно главному
-        const win = BrowserWindow.getAllWindows()[0];
-        if (win) {
-            win.webContents.send('hotkey-action', { type: 'MEDIA_CONTROL', command: 'toggle' });
-        }
-    });
-
-    // Alt + F2: Быстрый YouTube
-    globalShortcut.register('Alt+F2', () => {
-        const win = BrowserWindow.getAllWindows()[0];
-        if (win) {
-            win.webContents.send('hotkey-action', { type: 'OPEN_URL', url: 'https://youtube.com' });
-        }
+    // Ctrl + Shift + M: Автоответ в Дискорде
+    globalShortcut.register('Ctrl+Shift+M', () => {
+        BrowserWindow.getAllWindows().forEach(win => {
+            win.webContents.send('execute-discord-mute');
+        });
+        console.log('Global Hotkey: Ctrl+Shift+M pressed');
     });
 
     // --- ПРОВЕРКА ОБНОВЛЕНИЙ ---
