@@ -1,15 +1,20 @@
-const { app, BrowserWindow, globalShortcut, ipcMain, session, desktopCapturer, Menu, dialog } = require('electron');
+// main.js
+const { app, BrowserWindow, globalShortcut, ipcMain, session, Menu, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
+
+// Подключение внешних изолированных модулей
 const { setupBlocker, disableBlocker } = require('./adblocker');
 const { setupScreenShare } = require('./screen-share');
+const { setupProxyService } = require('./proxy-service');
+const { setupArchiveService } = require('./archive-service');
+const { setupWindowService } = require('./window-service');
+const { setupVaultService } = require('./vault-service');
+const { setupPasswordService } = require('./password-service');
+const { setupShortcutService } = require('./shortcut-service');
 
 let isAdBlockEnabled = true;
-
-
-const { exec } = require('child_process');
-
-const fetch = require('cross-fetch');
+let vaultService = null; 
 
 // 1. ПОДКЛЮЧЕНИЕ ОБНОВЛЕНИЙ И ЛОГОВ
 const { autoUpdater } = require('electron-updater');
@@ -17,10 +22,19 @@ const log = require('electron-log');
 autoUpdater.logger = log;
 autoUpdater.logger.transports.file.level = 'info';
 
-
-// Реальный путь к данным в профиле пользователя (%APPDATA%)
+// Определение путей приложения
 const userDataPath = path.join(app.getPath('appData'), 'WebHub-Desktop-profile');
 const gpuSettingsPath = path.join(userDataPath, 'gpu-settings.json');
+
+if (!fs.existsSync(userDataPath)) {
+    fs.mkdirSync(userDataPath, { recursive: true });
+}
+// Переопределяем userData путь на наш кастомный профиль
+app.setPath('userData', userDataPath);
+
+// ТЕПЕРЬ МОЖНО БЕЗОПАСНО ИНИЦИАЛИЗИРОВАТЬ СЕРВИС ПАРОЛЕЙ
+vaultService = setupVaultService(userDataPath);
+setupPasswordService(userDataPath, vaultService);
 
 function isGpuEnabled() {
     try {
@@ -32,7 +46,6 @@ function isGpuEnabled() {
     return true; 
 }
 
-// ОБЯЗАТЕЛЬНО ОБЪЯВИ ЭТУ ПЕРЕМЕННУЮ ЗДЕСЬ:
 const gpuActive = isGpuEnabled(); 
 
 if (!gpuActive) {
@@ -44,317 +57,133 @@ if (!gpuActive) {
     app.commandLine.appendSwitch('enable-zero-copy');
     console.log("GPU Acceleration: ENABLED");
 }
-// Путь для папки-ссылки в директории программы
-const linkPath = path.join(process.cwd(), 'DATA_LINK'); 
 
 app.commandLine.appendSwitch('disable-blink-features', 'AutomationControlled');
 
-// Устанавливаем путь к userData до готовности приложения
-if (!fs.existsSync(userDataPath)) {
-    fs.mkdirSync(userDataPath, { recursive: true });
-}
-app.setPath('userData', userDataPath);
+// Инициализация остальных сервисов (кроме shortcutService, он пойдет в ready)
+const windowService = setupWindowService(userDataPath);
+const proxyService = setupProxyService(userDataPath, createApplicationMenu);
+const archiveService = setupArchiveService(userDataPath);
 
-
-async function handleCookieImport() {
-    const win = BrowserWindow.getFocusedWindow();
-
-    const { canceled, filePaths } = await dialog.showOpenDialog(win, {
-        title: 'Выберите файл куков (JSON)',
-        properties: ['openFile'],
-        filters: [{ name: 'JSON Cookies', extensions: ['json'] }]
-    });
-    if (canceled || filePaths.length === 0) return;
-
-    try {
-        const rawData = fs.readFileSync(filePaths[0], 'utf8');
-        const cookies = JSON.parse(rawData);
-        const currentSession = session.defaultSession;
-        for (const cookie of cookies) {
-            const domain = cookie.domain.startsWith('.') ? cookie.domain.substring(1) : cookie.domain;
-            const url = `${cookie.secure || cookie.name.startsWith('__Secure-') || cookie.name.startsWith('__Host-') ? 'https' : 'http'}://${domain}${cookie.path}`;
-
-            const cookieDetails = {
-                url: url,
-                name: cookie.name,
-                value: cookie.value,
-                domain: cookie.domain,
-                path: cookie.path,
-                secure: cookie.secure,
-                httpOnly: cookie.httpOnly,
-                expirationDate: cookie.expirationDate,
-                // Добавляем принудительно SameSite, если его нет, чтобы Secure куки проходили
-                sameSite: cookie.name.startsWith('__Host') ? 'no_restriction' : undefined 
-            };
-            // Если кука имеет защищенный префикс, она ОБЯЗАНА быть secure
-            if (cookie.name.startsWith('__Secure-') || cookie.name.startsWith('__Host-')) {
-                cookieDetails.secure = true;
-            }
-
-            await currentSession.cookies.set(cookieDetails).catch(e => {
-    // Игнорируем специфические ошибки префиксов и перезаписи secure-кук
-    const ignoredErrors = ['invalid __Host-', 'overwritten a Secure cookie'];
-    if (!ignoredErrors.some(msg => e.message.includes(msg))) {
-        console.warn(`Ошибка куки ${cookie.name}:`, e.message);
-    }
-});
-        }
-        console.log('import coocies completed');
-        if (win) win.reload(); // Перезагружаем для применения авторизации
-
-    } catch (err) {
-        console.error("Ошибка импорта:", err);
-        dialog.showErrorBox('Ошибка', 'Could not read or set cookie.');
-    }
-}
-
-async function handleClearCookies() {
-    const win = BrowserWindow.getFocusedWindow();
-    const { response } = await dialog.showMessageBox(win, {
-        type: 'question',
-        buttons: ['Отмена', 'Да, удалить всё'],
-        defaultId: 1,
-        title: 'Подтверждение',
-        message: 'Вы уверены, что хотите удалить все куки и данные авторизации?',
-        detail: 'Это приведет к выходу из всех аккаунтов на всех сайтах.'
-    });
-
-    if (response === 1) {
-        await session.defaultSession.clearStorageData();
-        console.log('Все куки и данные очищены.');
-        if (win) win.reload();
-    }
-}
-
-// Определяем доступные UA
 const AGENTS = {
-    desktop: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36",
-    mobile: "Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Mobile Safari/537.36", // <--- ТУТ НУЖНА ЗАПЯТАЯ
-    IosMobile: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1" // <--- ТУТ УБРАЛ ТОЧКУ С ЗАПЯТОЙ
+    desktop: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36 WebHubSecureSrv_v3",
+    mobile: "Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Mobile Safari/537.36 WebHubSecureSrv_v3",
+    IosMobile: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1 WebHubSecureSrv_v3"
 };
 
 function setUserAgent(type) {
     const newUA = AGENTS[type];
     if (!newUA) return;
-
     session.defaultSession.setUserAgent(newUA);
-    
-    // Получаем все окна и webview
-    const wins = BrowserWindow.getAllWindows();
-    wins.forEach(w => {
-        // Перезагружаем контент только если он уже загружен
-        if (!w.webContents.isLoading()) {
-            w.webContents.reload();
-        }
+    BrowserWindow.getAllWindows().forEach(w => {
+        if (!w.webContents.isLoading()) w.webContents.reload();
     });
-    
-    // Используем правильную кодировку для консоли (чтобы не было кракозябр)
-    console.log(`User-Agent changed to: ${type}`);
 }
 
-
-// 1. ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ И ФУНКЦИИ ПРОКСИ (Вынеси их сюда)
-const proxyBypassPath = path.join(userDataPath, 'proxy_bypass.json');
-
-function applyProxySettings() {
-    // Базовый список
-    const baseBypass = ["vk.com", "m.vk.com", "google.com", "yandex.ru", "mail.yandex.ru", "kinopoisk.ru", "www.kinopoisk.ru", "disk.yandex.ru", "2ip.ru", "ya.ru", "mail.ru"];
-    
-    let savedDomains = [];
-    if (fs.existsSync(proxyBypassPath)) {
-        try {
-            savedDomains = JSON.parse(fs.readFileSync(proxyBypassPath, 'utf8'));
-        } catch (e) { console.error("Proxy file error:", e); }
-    }
-
-    // Объединяем и убираем дубликаты
-    const uniqueBypass = [...new Set([...baseBypass, ...savedDomains])];
-    const bypassList = uniqueBypass.join(", ");
-
-    const proxyConfig = {
-        proxyRules: "http://77.239.104.196:8888",
-        proxyBypassRules: bypassList
-    };
-
-    return session.defaultSession.setProxy(proxyConfig)
-        .then(() => console.log('Proxy applied. Unique Bypass:', bypassList))
-        .catch(err => console.error('Proxy setup error:', err));
-}
-
-// 2. ОБРАБОТЧИКИ IPC (Тоже глобально)
-ipcMain.handle('save-proxy-domain', (event, domain) => {
-    let list = [];
-    if (fs.existsSync(proxyBypassPath)) {
-        try { list = JSON.parse(fs.readFileSync(proxyBypassPath, 'utf8')); } catch(e){}
-    }
-    if (!list.includes(domain)) {
-        list.push(domain);
-        fs.writeFileSync(proxyBypassPath, JSON.stringify(list));
-        applyProxySettings();
-        createApplicationMenu();
-    }
-});
-
-ipcMain.handle('delete-proxy-domain', (event, domain) => {
-    removeProxyDomain(domain); // Используем общую функцию
-});
-
-function getSavedProxyDomains() {
-    if (fs.existsSync(proxyBypassPath)) {
-        try {
-            const data = JSON.parse(fs.readFileSync(proxyBypassPath, 'utf8'));
-            return Array.isArray(data) ? data : [];
-        } catch (e) {
-            console.error("Ошибка чтения файла исключений:", e);
-            return [];
-        }
-    }
-    return [];
-}
-
-/**
- * СОЗДАНИЕ ПРИКЛАДНОГО МЕНЮ
- */
 function createApplicationMenu() {
-    const savedDomains = getSavedProxyDomains();
+    const savedDomains = proxyService.getSavedProxyDomains();
     const template = [
         {
             label: 'Аккаунты',
             submenu: [
-                {
-                    label: 'Импортировать профиль (JSON)',
-                    accelerator: 'CmdOrCtrl+I',
-                    click: () => { handleCookieImport(); }
+                { 
+                    label: '🔑 Менеджер паролей', 
+                    accelerator: 'CmdOrCtrl+P', 
+                    click: (menuItem, browserWindow) => {
+                        if (browserWindow) {
+                            ipcMain.emit('toggle-password-window', { sender: browserWindow.webContents });
+                        }
+                    }
                 },
-
-                {
-                    label: 'Удалить все куки',
-                    click: () => { handleClearCookies(); }
-                },
-
-                {
-                 label: 'Проверить наличие обновлений',
-                   click: () => { autoUpdater.checkForUpdatesAndNotify(); }
-                 },
-
+                { type: 'separator' }, 
+                { label: 'Импортировать профиль (JSON)', accelerator: 'CmdOrCtrl+I', click: () => windowService.handleCookieImport() },
+                { label: 'Удалить все куки', click: () => windowService.handleClearCookies() },
+                { label: 'Проверить наличие обновлений', click: () => autoUpdater.checkForUpdatesAndNotify() },
                 { type: 'separator' },
                 { role: 'reload', label: 'Перезагрузить страницу' },
                 { role: 'quit', label: 'Выход' }
             ]
         },
-       {
+        {
             label: 'Прокси',
             submenu: [
-                {
-                    label: 'Добавить текущий сайт в исключения',
-                    click: () => {
-                        const win = BrowserWindow.getFocusedWindow();
-                        if (win) win.webContents.send('get-current-domain-for-proxy');
-                    }
-                },
+                { label: 'Добавить текущий сайт в исключения', click: () => {
+                    const win = BrowserWindow.getFocusedWindow();
+                    if (win) win.webContents.send('get-current-domain-for-proxy');
+                }},
                 {
                     label: 'Удалить из исключений',
-                    // Кнопка будет неактивна, если список пуст
                     enabled: savedDomains.length > 0, 
-                    submenu: savedDomains.map(domain => {
-                        return {
-                            label: domain,
-                            click: () => {
-                                // Вызываем удаление конкретного домена
-                                // Мы имитируем вызов IPC события
-                                removeProxyDomain(domain);
-                            }
-                        };
-                    })
+                    submenu: savedDomains.map(domain => ({
+                        label: domain,
+                        click: () => proxyService.removeProxyDomain(domain)
+                    }))
                 },
                 { type: 'separator' },
-                {
-                    label: 'Очистить весь список',
-                    click: () => {
-                        if (fs.existsSync(proxyBypassPath)) {
-                            fs.unlinkSync(proxyBypassPath);
-                            applyProxySettings();
-                            createApplicationMenu(); // Обновляем меню после очистки
-                            dialog.showMessageBox({ message: "Список исключений очищен" });
-                        }
+                { label: 'Очистить весь список', click: () => {
+                    const pPath = path.join(userDataPath, 'proxy_bypass.json');
+                    if (fs.existsSync(pPath)) {
+                        fs.unlinkSync(pPath);
+                        proxyService.applyProxySettings();
+                        createApplicationMenu();
+                        dialog.showMessageBox({ message: "Список исключений очищен" });
                     }
-                }
+                }}
             ]
         },
-        
         {
             label: 'Система',
             submenu: [
                 {
+                    label: '⌨️ Горячие клавиши',
+                    accelerator: 'CmdOrCtrl+K',
+                    click: (menuItem, browserWindow) => {
+                        if (browserWindow) {
+                            ipcMain.emit('toggle-shortcuts-window', { sender: browserWindow.webContents });
+                        }
+                    }
+                },
+                { type: 'separator' },
+                {
                     label: 'Режим отображения',
                     submenu: [
-                        { 
-                            label: 'Компьютер (Desktop)', 
-                            click: () => setUserAgent('desktop') 
-                        },
-                        { 
-                            label: 'Телефон (Mobile)', 
-                            click: () => setUserAgent('mobile') 
-                        },
-                        { 
-                            label: 'Ios (Mobile)', 
-                            click: () => setUserAgent('IosMobile') 
-                        }
+                        { label: 'Компьютер (Desktop)', click: () => setUserAgent('desktop') },
+                        { label: 'Телефон (Mobile)', click: () => setUserAgent('mobile') },
+                        { label: 'Ios (Mobile)', click: () => setUserAgent('IosMobile') }
                     ]
                 },
                 {
-    label: 'Блокировщик рекламы',
-    type: 'checkbox',
-    checked: isAdBlockEnabled,
-    click: async () => {
-        isAdBlockEnabled = !isAdBlockEnabled;
-        
-        if (isAdBlockEnabled) {
-            await setupBlocker(session.defaultSession);
-        } else {
-            await disableBlocker(session.defaultSession);
-            
-            // КРИТИЧЕСКИ ВАЖНО ДЛЯ ТЕСТОВ:
-            // Очищаем кэш и данные HTTP, чтобы сайты увидели изменения мгновенно
-            await session.defaultSession.clearStorageData({
-                storages: ['cachestorage', 'shadercache']
-            });
-        }
-
-        // ОБЯЗАТЕЛЬНО: Перерисовываем меню, чтобы зафиксировать галочку
-        createApplicationMenu();
-        
-        // Уведомление
-        dialog.showMessageBox({
-            type: 'info',
-            message: `Блокировщик ${isAdBlockEnabled ? 'ВКЛЮЧЕН' : 'ВЫКЛЮЧЕН'}`,
-            detail: 'Приложения и вкладки автоматически обновятся.'
-        });
-
-        // Перезагружаем все окна, чтобы применить настройки
-        BrowserWindow.getAllWindows().forEach(w => w.reload());
-    }
-},
-                {
-            label: 'Аппаратное ускорение',
-            type: 'checkbox',
-            checked: gpuActive,
-            click: () => {
-                const newState = !gpuActive;
-                fs.writeFileSync(gpuSettingsPath, JSON.stringify({ enabled: newState }));
-                dialog.showMessageBox({
-                    type: 'info',
-                    buttons: ['Перезагрузить', 'Позже'],
-                    title: 'Настройка GPU',
-                    message: `Для ${newState ? 'включения' : 'выключения'} ускорения нужна перезагрузка.`
-                }).then(({ response }) => {
-                    if (response === 0) {
-                        app.relaunch();
-                        app.exit();
+                    label: 'Блокировщик рекламы',
+                    type: 'checkbox',
+                    checked: isAdBlockEnabled,
+                    click: async () => {
+                        isAdBlockEnabled = !isAdBlockEnabled;
+                        if (isAdBlockEnabled) await setupBlocker(session.defaultSession);
+                        else {
+                            await disableBlocker(session.defaultSession);
+                            await session.defaultSession.clearStorageData({ storages: ['cachestorage', 'shadercache'] });
+                        }
+                        createApplicationMenu();
+                        BrowserWindow.getAllWindows().forEach(w => w.reload());
                     }
-                });
-            }
-        },
+                },
+                {
+                    label: 'Аппаратное ускорение',
+                    type: 'checkbox',
+                    checked: gpuActive,
+                    click: () => {
+                        const newState = !gpuActive;
+                        fs.writeFileSync(gpuSettingsPath, JSON.stringify({ enabled: newState }));
+                        dialog.showMessageBox({
+                            type: 'info',
+                            buttons: ['Перезагрузить', 'Позже'],
+                            title: 'Настройка GPU',
+                            message: `Для ${newState ? 'включения' : 'выключения'} ускорения нужна перезагрузка.`
+                        }).then(({ response }) => {
+                            if (response === 0) { app.relaunch(); app.exit(); }
+                        });
+                    }
+                },
                 { role: 'toggleDevTools', label: 'Консоль разработчика' },
                 { type: 'separator' },
                 { role: 'resetZoom', label: 'Сбросить масштаб' },
@@ -368,35 +197,14 @@ function createApplicationMenu() {
     Menu.setApplicationMenu(menu);
 }
 
-// Настройка событий авто-апдейтера
-autoUpdater.on('update-available', () => {
-    dialog.showMessageBox({
-        type: 'info',
-        title: 'Обновление',
-        message: 'Найдена новая версия. Загружаю в фоне...',
-        buttons: ['Ок']
-    });
-});
-
+// Обработчики обновлений
+autoUpdater.on('update-available', () => { dialog.showMessageBox({ type: 'info', title: 'Обновление', message: 'Найдена новая версия. Загружаю в фоне...', buttons: ['Ок'] }); });
 autoUpdater.on('update-downloaded', () => {
-    dialog.showMessageBox({
-        type: 'question',
-        buttons: ['Установить и перезапустить', 'Позже'],
-        defaultId: 0,
-        title: 'Обновление готово',
-        message: 'Новая версия скачана. Перезагрузить программу для установки?'
-    }).then(result => {
+    dialog.showMessageBox({ type: 'question', buttons: ['Установить и перезапустить', 'Позже'], defaultId: 0, title: 'Обновление готово', message: 'Новая версия скачана. Перезагрузить программу для установки?' }).then(result => {
         if (result.response === 0) autoUpdater.quitAndInstall();
     });
 });
 
-autoUpdater.on('error', (message) => {
-    console.error('Ошибка обновления:', message);
-});
-
-/**
- * ОСНОВНОЕ ОКНО ПРИЛОЖЕНИЯ
- */
 async function createWindow() {
     const win = new BrowserWindow({
         width: 1600,
@@ -417,138 +225,98 @@ async function createWindow() {
             contextIsolation: true,
             sandbox: true,
             preload: path.join(__dirname, 'preload.js'),
-            offscreen: false, 
-            canvas: true,     
-            webgl: true, 
-            enableRemoteModule: false,
             backgroundThrottling: false
         }
     });
 
-    win.webContents.session.setPermissionCheckHandler((webContents, permission) => {
-    if (permission === 'fullscreen') return true;
-    return true; 
-});
+    win.webContents.session.setPermissionCheckHandler(() => true);
+    win.webContents.session.setPermissionRequestHandler((w, p, callback) => callback(true));
 
-win.webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
-    if (permission === 'fullscreen') {
-        callback(true);
-    } else {
-        callback(true);
-    }
-});
+    win.webContents.on('enter-html-full-screen', () => { win.setFullScreen(true); win.webContents.send('fullscreen-toggled', true); });
+    win.webContents.on('leave-html-full-screen', () => { win.setFullScreen(false); win.webContents.send('fullscreen-toggled', false); });
+    
+    // Перехват сообщений от webview для работы менеджера паролей
+    win.webContents.on('did-attach-webview', (event, webContents) => {
+        webContents.on('console-message', (e) => {
+            const message = e.message;
 
-// --- 2. ОБРАБАТЫВАЕМ ПЕРЕКЛЮЧЕНИЕ (твои текущие функции) ---
-win.webContents.on('enter-html-full-screen', () => {
-    win.setFullScreen(true);
-    win.webContents.send('fullscreen-toggled', true); 
-});
+            if (!message.startsWith('WEBVIEW_ACTION:')) return;
 
-win.webContents.on('leave-html-full-screen', () => {
-    win.setFullScreen(false);
-    win.webContents.send('fullscreen-toggled', false); 
-});
+            if (message.startsWith('WEBVIEW_ACTION:GET_CREDS:')) {
+                const hostname = message.replace('WEBVIEW_ACTION:GET_CREDS:', '').trim();
+                
+                const accounts = vaultService.findCredentials(hostname);
+                if (accounts) {
+                    const accountsJson = JSON.stringify(accounts).replace(/'/g, "\\'");
+                    
+                    const fillScript = `
+                        window.postMessage({
+                            type: 'VAULT_FILL_DATA',
+                            accounts: JSON.parse('${accountsJson}')
+                        }, '*');
+                    `;
+                    webContents.executeJavaScript(fillScript).catch(err => console.error("Ошибка передачи аккаунтов:", err));
+                }
+            }
+
+            if (message.startsWith('WEBVIEW_ACTION:SAVE_CREDS:')) {
+                const rawData = message.replace('WEBVIEW_ACTION:SAVE_CREDS:', '').trim();
+                const [url, username, password] = rawData.split('|||');
+                
+                if (url && username && password) {
+                    vaultService.saveCredentials(url, username, password);
+                }
+            }
+        });
+    });
 
     win.webContents.once('dom-ready', () => {
         const ses = win.webContents.session;
- 
-         // Проверка, что мы не на пустой странице
-        const url = win.webContents.getURL();
-        if (url === 'about:blank') return;
-        
-        // 1. Инициализируем блокировщик (если включен)
-        if (isAdBlockEnabled) {
-            setupBlocker(ses);
-        }
-
-        // 2. Инициализируем захват экрана
+        if (win.webContents.getURL() === 'about:blank') return;
+        if (isAdBlockEnabled) setupBlocker(ses);
         setupScreenShare(ses);
-        
-        console.log("Система: Модули AdBlock и ScreenShare подключены после готовности DOM.");
     });
 
-
-     setUserAgent('desktop');
-
-  applyProxySettings().then(() => {
-     win.loadFile('index.html');
- });
-
-
-
-   
+    setUserAgent('desktop');
+    await proxyService.applyProxySettings();
+    win.loadFile('index.html');
 }
 
-// Авторизация на прокси
 app.on('login', (event, webContents, request, authInfo, callback) => {
     if (authInfo.isProxy) {
         event.preventDefault();
-        callback('user', 'pass123'); // Твои данные Gost
+        callback('ЛОГИН', 'ПАРОЛЬ'); 
     }
 });
 
-ipcMain.handle('select-file', async (event) => {
-    try {
-        // 1. Получаем окно для модальности
-        // Используем event.sender, чтобы диалог привязался именно к тому окну, которое сделало запрос
-        const win = BrowserWindow.fromWebContents(event.sender) || BrowserWindow.getFocusedWindow();
-        
-        // 2. Открываем диалог выбора файла
-        const { canceled, filePaths } = await dialog.showOpenDialog(win, {
-            properties: ['openFile'],
-            filters: [{ name: 'Images', extensions: ['jpg', 'png', 'gif', 'webp', 'jpeg'] }]
-        });
+// Функция вещания команд на вкладки
+function broadcast(channel, data = null) {
+    BrowserWindow.getAllWindows().forEach(win => {
+        try {
+            if (win && !win.isDestroyed() && !win.webContents.isLoading()) {
+                const url = win.webContents.getURL();
+                if (url && url !== 'about:blank' && !url.startsWith('devtools://')) {
+                    win.webContents.send(channel, data);
+                }
+            }
+        } catch (e) { console.error(`Ошибка трансляции: ${e.message}`); }
+    });
+}
 
-        if (canceled || filePaths.length === 0) {
-            return null;
-        }
-
-        const sourcePath = filePaths[0];
-        
-        // 3. Получаем путь к папке активов
-        const assetsFolder = path.join(userDataPath, 'user_assets');
-
-        // 4. Проверяем папку
-        if (!fs.existsSync(assetsFolder)) {
-            fs.mkdirSync(assetsFolder, { recursive: true });
-        }
-
-        // 5. Формируем путь
-        const fileName = `${Date.now()}_${path.basename(sourcePath)}`;
-        const destPath = path.join(assetsFolder, fileName);
-        
-        // 6. Копируем файл
-        fs.copyFileSync(sourcePath, destPath);
-        
-        // 7. Формируем финальный путь
-        const finalPath = `file://${destPath.replace(/\\/g, '/')}`;
-        
-        console.log("Система: Файл успешно скопирован в активы:", finalPath);
-        return finalPath; 
-
-    } catch (err) {
-        // Ловим ЛЮБУЮ ошибку (диалог, права доступа, отсутствие места на диске)
-        console.error("IPC Error [select-file]:", err);
-        
-        // Важно: возвращаем null в рендер, чтобы там поняли, что выбор не удался
-        return null; 
-    }
-});
-
-// Запуск приложения
+// Готовность приложения
 app.whenReady().then(async () => {
-    // 1. Сначала применяем прокси (если это нужно глобально до запуска окон)
-    await applyProxySettings();
-    
-    // 2. Создаем меню
+    setupShortcutService(userDataPath, broadcast, archiveService);
+
+    await proxyService.applyProxySettings();
     createApplicationMenu();
-    
-    // 3. Создаем главное окно
     await createWindow();
 
-    // --- РЕГИСТРАЦИЯ ГЛОБАЛЬНЫХ ХОТКЕЕВ ---
-    
-    // F11: Полноэкранный режим
+    ipcMain.on('open-new-tab', (event, url) => {
+        const mainWin = BrowserWindow.getAllWindows().find(w => w.webContents.getURL().includes('index.html') && !w.isDestroyed());
+        if (mainWin) mainWin.webContents.send('force-open-url', url);
+    });
+
+    // Полноэкранный режим
     globalShortcut.register('F11', () => {
         const focusedWin = BrowserWindow.getFocusedWindow();
         if (focusedWin) {
@@ -558,89 +326,18 @@ app.whenReady().then(async () => {
             focusedWin.webContents.send('fullscreen-toggled', state);
         }
     });
-    
-    function broadcast(channel, data = null) {
-    BrowserWindow.getAllWindows().forEach(win => {
-        try {
-            // Проверяем: окно существует + не уничтожено + страница НЕ в процессе загрузки
-            if (win && !win.isDestroyed() && !win.webContents.isLoading()) {
-                const url = win.webContents.getURL();
-                // Не шлем скрипты в пустые окна или системные страницы
-                if (url && url !== 'about:blank' && !url.startsWith('devtools://')) {
-                    win.webContents.send(channel, data);
-                }
-            }
-        } catch (e) {
-            console.error(`Ошибка отправки в окно: ${e.message}`);
-        }
-    });
-}
 
-// И тогда твои хоткеи превратятся в элегантные строчки:
-globalShortcut.register('Alt+F7', () => broadcast('execute-yandex-play'));
-globalShortcut.register('Alt+F6', () => broadcast('execute-yandex-next'));
-globalShortcut.register('Alt+F5', () => broadcast('execute-yandex-prev'));
-globalShortcut.register('Alt+`',  () => broadcast('execute-discord-answer'));
-globalShortcut.register('Ctrl+Shift+M',  () => broadcast('execute-discord-mute'));
-
-    // --- ПРОВЕРКА ОБНОВЛЕНИЙ ---
-    setTimeout(() => { 
-        autoUpdater.checkForUpdatesAndNotify(); 
-    }, 3000);
-
+    setTimeout(() => { autoUpdater.checkForUpdatesAndNotify(); }, 3000);
 });
 
+app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); }); 
+app.on('will-quit', () => { globalShortcut.unregisterAll(); });
 
-app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') app.quit();
-}); 
-
-// МЕСТО для очистки глобальных клавиш:
-app.on('will-quit', () => {
-    globalShortcut.unregisterAll();
-});
-
-ipcMain.handle('window-minimize', (event) => {
-    const win = BrowserWindow.fromWebContents(event.sender);
-    if (win) win.minimize();
-});
-
-ipcMain.handle('window-maximize', (event) => {
-    const win = BrowserWindow.fromWebContents(event.sender);
-    if (win.isMaximized()) {
-        win.unmaximize();
-    } else {
-        win.maximize();
+// Безопасный проброс ответа обратно в окно менеджера паролей через прямую отправку
+ipcMain.on('active-tab-pass-data-response', (event, data) => {
+    const wins = BrowserWindow.getAllWindows();
+    const passWin = wins.find(w => !w.isDestroyed() && w.webContents.getURL().includes('password-manager.html'));
+    if (passWin) {
+        passWin.webContents.send('active-tab-pass-data', data);
     }
 });
-
-ipcMain.handle('window-close', (event) => {
-    const win = BrowserWindow.fromWebContents(event.sender);
-    if (win) win.close();
-});
-
-ipcMain.handle('show-context-menu', (event) => {
-    const win = BrowserWindow.fromWebContents(event.sender);
-    const menu = Menu.getApplicationMenu();
-    if (menu && win) {
-        menu.popup({ window: win });
-    }
-});
-
-ipcMain.handle('get-proxy-bypass-list', () => {
-    return getSavedProxyDomains();
-});
-
-function removeProxyDomain(domain) {
-    if (fs.existsSync(proxyBypassPath)) {
-        try {
-            let list = JSON.parse(fs.readFileSync(proxyBypassPath, 'utf8'));
-            list = list.filter(d => d !== domain);
-            fs.writeFileSync(proxyBypassPath, JSON.stringify(list));
-            applyProxySettings(); // Применяем новые настройки прокси
-            createApplicationMenu(); // Обновляем само меню
-        } catch (e) { 
-            console.error("Ошибка при удалении домена:", e); 
-        }
-    }
-}

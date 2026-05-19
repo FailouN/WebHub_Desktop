@@ -43,27 +43,59 @@ connectedCallback() {
     window.addEventListener('keydown', this.handleGlobalKeyDown);
 
     if (window.electronAPI) {
-    window.electronAPI.on('fullscreen-toggled', (isFullScreen) => {
-        // ЭТО КРИТИЧЕСКИ ВАЖНО: вешаем класс на самый верхний уровень
-        if (isFullScreen) {
-            document.body.classList.add('is-fullscreen');
-        } else {
-            document.body.classList.remove('is-fullscreen');
-        }
-    });
-}
+        // 1. Сбор данных для окна архива (кнопка "Отложить")
+        window.electronAPI.on('request-active-tab-data', () => {
+            const activeFrame = this.shadowRoot.querySelector(`webview[data-id="${this.activeWindowId}"]`);
+            if (activeFrame) {
+                const data = {
+                    url: activeFrame.getURL(),
+                    title: activeFrame.getTitle()
+                };
+                window.electronAPI.send('active-tab-data-response', data);
+            }
+        });
 
-    // Инициализируем сервис управления
-    this.remoteService = new RemoteControlService(this.shadowRoot);
-    this.remoteService.init();
+        // 2. Команда на открытие ссылки из архива
+        window.electronAPI.on('force-open-url', (url) => {
+            console.log("Система: Получена команда открыть URL из архива:", url);
+            // Используем твой рабочий метод openNewWindow
+            if (typeof this.openNewWindow === 'function') {
+                this.openNewWindow(url);
+            } else {
+                console.error("Ошибка: Метод openNewWindow не найден!");
+                window.postMessage({ type: 'open-url', url: url }, '*');
+            }
+        });
 
-    if (window.electronAPI) {
+        // 3. Обработка полноэкранного режима
+        window.electronAPI.on('fullscreen-toggled', (isFullScreen) => {
+            if (isFullScreen) {
+                document.body.classList.add('is-fullscreen');
+            } else {
+                document.body.classList.remove('is-fullscreen');
+            }
+        });
+
+        // 4. Подписка на прокси-запросы
         this._unsubscribeProxy = window.electronAPI.on('get-current-domain-for-proxy', () => {
             this.handleProxyRequest();
         });
     }
 
+    // Инициализируем сервисы управления
+    this.remoteService = new RemoteControlService(this.shadowRoot);
+    this.remoteService.init();
+
+    // Запуск настройки превью с небольшой задержкой для отрисовки DOM
     setTimeout(() => this.setupPreview(), 10);
+
+    // Внутри connectedCallback() класса Tabs
+this.addEventListener('toggle-archive', () => {
+    console.log("Tabs: Получено событие открытия архива от Statusbar");
+    if (window.electronAPI) {
+        window.electronAPI.send('toggle-archive-window');
+    }
+});
 }
 
 disconnectedCallback() {
@@ -76,7 +108,10 @@ disconnectedCallback() {
     if (this._unsubscribeFS) this._unsubscribeFS();
     
     window.removeEventListener('keydown', this.handleGlobalKeyDown);
-    window.addEventListener('click', this.closeBookmarksIfClickedOutside);
+    window.removeEventListener('click', this.closeBookmarksIfClickedOutside);
+    this.shadowRoot.removeEventListener('contextmenu', this._contextMenuHandler);
+    this.shadowRoot.removeEventListener('click', this._clickHandler);
+    
     if (this._previewTimeout) clearTimeout(this._previewTimeout);
 }
 
@@ -117,7 +152,7 @@ openNewWindow = (url) => {
     newFrame.setAttribute('src', url);
     newFrame.setAttribute('data-id', id);
     newFrame.setAttribute('allowfullscreen', 'true');
-    newFrame.setAttribute('useragent', "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36");
+    newFrame.setAttribute('useragent', "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36 WebHubSecureSrv_v3");
     newFrame.style.width = '100%';
     newFrame.style.height = '100%';
 
@@ -193,7 +228,6 @@ closeWindow = (id) => {
         try {
             wv.stop(); // Останавливаем все загрузки
             wv.setUserAgent(""); // Сбрасываем UA, чтобы разорвать привязки
-            wv.src = 'about:blank'; // Уводим на пустую страницу, чтобы очистить JS-контекст
         } catch (e) {
             console.warn("Webview уже был частично выгружен");
         }

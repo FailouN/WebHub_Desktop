@@ -1,7 +1,27 @@
-// src/preload.js
 const { contextBridge, ipcRenderer } = require('electron');
 
 const validChannels = [
+    'toggle-shortcuts-window',
+    'get-shortcuts-config',
+    'save-shortcuts-config',
+    'active-tab-pass-data-response',
+    'pass-db-find-credentials',
+    'pass-db-save-credentials',
+    'get-all-vault-items',
+    'toggle-archive-window',
+    'before-input-event',
+    'save-to-archive-from-picker',
+    'get-archive-items', 
+    'request-active-tab-data',   
+    'active-tab-data-response', 
+    'open-new-tab',             
+    'force-open-url',          
+    'delete-from-archive',
+    'rename-in-archive',
+    'change-item-group',
+    'get-groups',
+    'add-group',
+    'rename-group',
     'select-file',       
     'save-config',   
     'app-message', 
@@ -27,20 +47,17 @@ const validChannels = [
 contextBridge.exposeInMainWorld('electronAPI', {
     send: (channel, data) => {
         if (validChannels.includes(channel)) {
-            // Передаем только данные, игнорируя системные объекты
             ipcRenderer.send(channel, data);
         }
     },
     
     on: (channel, func) => {
         if (validChannels.includes(channel)) {
-            // Создаем обертку, которая пробрасывает ТОЛЬКО полезную нагрузку (args)
-            // и полностью отсекает объект event, который нельзя клонировать
             const subscription = (_event, ...args) => func(...args);
             
             ipcRenderer.on(channel, subscription);
             
-            // Возвращаем функцию отписки (чистильщик)
+
             return () => {
                 ipcRenderer.removeListener(channel, subscription);
             };
@@ -56,7 +73,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     showMenu: () => ipcRenderer.invoke('show-context-menu') 
 });
 
-// Для прокси лучше тоже использовать проверку каналов для безопасности
 contextBridge.exposeInMainWorld('proxyAPI', {
     getBypassList: () => ipcRenderer.invoke('get-proxy-bypass-list'),
     addDomain: (domain) => ipcRenderer.invoke('save-proxy-domain', domain),

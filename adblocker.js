@@ -1,92 +1,88 @@
 const { ElectronBlocker } = require('@ghostery/adblocker-electron');
 const fetch = require('cross-fetch');
-const fs = require('fs').promises; 
-const { existsSync } = require('fs');
+const fs = require('fs').promises;
 const path = require('path');
 const { app } = require('electron');
 
 let activeBlocker = null;
 
 async function setupBlocker(sessionInstance) {
-    if (!sessionInstance) return;
+    if (!sessionInstance || sessionInstance.destroyed) return;
 
-    const userDataPath = app.getPath('userData');
-    const blockerCachePath = path.join(userDataPath, 'adblocker.bin');
+    const blockerCachePath = path.join(app.getPath('userData'), 'adblocker.bin');
     const githubUrl = 'https://github.com/FailouN/WebHub_Desktop/releases/download/1.0.0/adblocker.bin';
 
-    const applyBlocker = async (blocker) => {
+    // Функция мягкого применения без обнуления хуков
+    const applyBlocker = (blocker) => {
         try {
-            // 1. Если уже есть активный блокер — отключаем его методы
+            // Если блокер уже тот же самый — ничего не делаем
+            if (activeBlocker === blocker) return;
+
+            // Нативно отключаем предыдущий, если он был (это быстрее, чем .onBeforeRequest(null))
             if (activeBlocker) {
                 activeBlocker.disableBlockingInSession(sessionInstance);
             }
-            
-            // 2. ЖЕСТКАЯ ОЧИСТКА (Фикс MaxListenersExceededWarning)
-            // Эти строки гарантируют, что Electron забудет про ВСЕ старые подписки на сетевые запросы
-            sessionInstance.webRequest.onBeforeRequest(null);
-            sessionInstance.webRequest.onBeforeSendHeaders(null);
-            sessionInstance.webRequest.onHeadersReceived(null); // Добавил еще один важный хук
 
             activeBlocker = blocker;
             activeBlocker.enableBlockingInSession(sessionInstance);
         } catch (e) {
-            console.error("AdBlock: Ошибка при применении фильтров:", e.message);
+            console.error("AdBlock Apply Error:", e.message);
         }
     };
 
-    // 1. БЫСТРЫЙ СТАРТ
+    // 1. АСИНХРОННЫЙ БЫСТРЫЙ СТАРТ
     try {
-        if (existsSync(blockerCachePath)) {
+        const stats = await fs.stat(blockerCachePath).catch(() => null);
+        if (stats && stats.isFile()) {
             const buffer = await fs.readFile(blockerCachePath);
             const blocker = await ElectronBlocker.deserialize(new Uint8Array(buffer));
-            await applyBlocker(blocker);
+            applyBlocker(blocker);
             console.log('AdBlock: Запущен из локального кэша.');
         }
-    } catch (e) { 
-        console.error("Ошибка быстрого старта AdBlock:", e); 
+    } catch (e) {
+        console.error("AdBlock Fast Start Error:", e);
     }
 
-    // 2. ОБНОВЛЕНИЕ В ФОНЕ
+    // 2. ФОНОВОЕ ОБНОВЛЕНИЕ (увеличиваем интервал до 30 сек, чтобы не мешать старту)
     setTimeout(async () => {
         try {
-            // Проверка: жива ли еще сессия?
             if (!sessionInstance || sessionInstance.destroyed) return;
 
-            const response = await fetch(githubUrl, { method: 'GET', redirect: 'follow' });
+            // Используем HEAD запрос, чтобы проверить размер файла перед скачиванием
+            const check = await fetch(githubUrl, { method: 'HEAD' });
+            const remoteSize = check.headers.get('content-length');
+            const localStats = await fs.stat(blockerCachePath).catch(() => null);
 
+            // Если размер совпадает, не скачиваем заново (экономим трафик и CPU)
+            if (localStats && remoteSize && localStats.size === parseInt(remoteSize)) {
+                console.log('AdBlock: Обновление не требуется (файлы идентичны).');
+                return;
+            }
+
+            const response = await fetch(githubUrl);
             if (response.ok) {
                 const arrayBuffer = await response.arrayBuffer();
                 const uint8Array = new Uint8Array(arrayBuffer);
-                await fs.writeFile(blockerCachePath, Buffer.from(uint8Array));
+                
+                // Сохраняем в фоне, не блокируя применение
+                fs.writeFile(blockerCachePath, Buffer.from(uint8Array)).catch(() => {});
                 
                 const newBlocker = await ElectronBlocker.deserialize(uint8Array);
-                await applyBlocker(newBlocker);
-                
-                console.log('AdBlock: Списки обновлены.');
+                applyBlocker(newBlocker);
+                console.log('AdBlock: Списки обновлены в фоне.');
             }
         } catch (err) {
-            console.error('AdBlock: Ошибка фонового обновления:', err.message);
+            console.error('AdBlock Update Error:', err.message);
         }
-    }, 15000);
+    }, 30000); 
 }
 
 async function disableBlocker(sessionInstance) {
     if (!sessionInstance) return;
-    
-    try {
-        if (activeBlocker) {
-            activeBlocker.disableBlockingInSession(sessionInstance);
-            activeBlocker = null;
-        }
-
-        // Вместо создания "пустого" блокера — просто обнуляем все сетевые хуки сессии
-        sessionInstance.webRequest.onBeforeRequest(null);
-        sessionInstance.webRequest.onBeforeSendHeaders(null);
-        sessionInstance.webRequest.onHeadersReceived(null);
-
-        console.log('AdBlock: Полностью деактивирован, хуки очищены.');
-    } catch (err) {
-        console.log('AdBlock Info: Сессия очищена.');
+    if (activeBlocker) {
+        activeBlocker.disableBlockingInSession(sessionInstance);
+        // Не зануляем activeBlocker глобально, чтобы при повторном включении 
+        // он подхватился мгновенно, а не десериализовался заново
     }
 }
 

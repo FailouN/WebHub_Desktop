@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Настройка горячих клавиш</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            color: white;
+            background: rgba(20, 20, 20, 0.98);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            box-sizing: border-box;
+            overflow: hidden;
+        }
+
+        /* Аккуратный встроенный заголовок с поддержкой перетаскивания окна */
+        .window-header {
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(0, 0, 0, 0.3);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            -webkit-app-region: drag; /* Делает всю область перетаскиваемой */
+            user-select: none;
+        }
+        
+        .header-title { 
+            font-size: 15px; 
+            font-weight: 500; 
+            letter-spacing: 0.5px;
+        }
+
+        /* Кнопка закрытия прямо в заголовке */
+        .header-close-btn {
+            background: none;
+            border: none;
+            color: #888;
+            font-size: 18px;
+            cursor: pointer;
+            -webkit-app-region: no-drag; /* Исключаем кнопку из области перетаскивания, чтобы клик работал */
+            transition: color 0.2s;
+            padding: 0 5px;
+        }
+        .header-close-btn:hover {
+            color: #ea6962; /* Подсвечиваем красным при наведении */
+        }
+        
+        .shortcuts-section {
+            flex: 1;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .shortcuts-section h3 { margin: 0 0 5px 0; font-size: 18px; font-weight: 500; }
+        .subtitle { font-size: 12px; color: #888; margin-bottom: 20px; }
+        
+        .list-container {
+            flex: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            padding-right: 5px;
+        }
+
+        /* --- Красивый кастомный скроллбар --- */
+        /* Настройка самой полосы прокрутки */
+        .list-container::-webkit-scrollbar {
+            width: 6px; /* Делаем его очень тонким */
+        }
+        /* Настройка фона трека скролла */
+        .list-container::-webkit-scrollbar-track {
+            background: transparent; 
+        }
+        /* Настройка бегунка */
+        .list-container::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1); 
+            border-radius: 10px; /* Закругляем края */
+            transition: background 0.2s;
+        }
+        /* Подсветка бегунка при наведении */
+        .list-container::-webkit-scrollbar-thumb:hover {
+            background: rgba(234, 105, 98, 0.4); /* Мягкий оттенок нашего фирменного красного */
+        }
+        
+        .shortcut-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            padding: 10px 15px;
+            border-radius: 8px;
+            transition: 0.2s;
+        }
+        .shortcut-row:hover {
+            background: rgba(255, 255, 255, 0.06);
+            border-color: rgba(255, 255, 255, 0.1);
+        }
+        .shortcut-label { font-size: 13px; color: #ddd; }
+        
+        .shortcut-key-input {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: #ea6962;
+            font-weight: bold;
+            font-family: inherit;
+            text-align: center;
+            padding: 8px;
+            border-radius: 6px;
+            width: 180px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: 0.2s;
+        }
+        .shortcut-key-input:focus {
+            border-color: #ea6962;
+            background: rgba(234, 105, 98, 0.05);
+            outline: none;
+        }
+        
+        .footer-actions {
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(0, 0, 0, 0.2);
+            border-top: 1px solid rgba(255, 255, 255, 0.03);
+        }
+        .info-text { font-size: 11px; color: #555; }
+        
+        .btn-save {
+            background: #ea6962;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 13px;
+            transition: 0.2s;
+        }
+        .btn-save:hover { background: #d35d56; }
+    </style>
+</head>
+<body>
+
+    <div class="window-header">
+        <div class="header-title">⌨️ Горячие клавиши приложения</div>
+        <button class="header-close-btn" onclick="window.close()">✕</button>
+    </div>
+
+    <div class="shortcuts-section">
+        <h3>Управление комбинациями</h3>
+        <div class="subtitle">Нажмите на поле ввода и удерживайте нужные клавиши (например: Ctrl+Alt+P). Для отмены нажмите Backspace.</div>
+        
+        <div class="list-container" id="shortcuts-list"></div>
+    </div>
+
+    <div class="footer-actions">
+        <div class="info-text"><kbd>ESC</kbd> или клик мимо: Закрыть окно</div>
+        <button class="btn-save" id="save-shortcuts-btn">Применить хоткеи</button>
+    </div>
+
+    <script>
+        const { ipcRenderer } = require('electron');
+        let shortcutsData = [];
+
+        async function initShortcutsUI() {
+            try {
+                shortcutsData = await ipcRenderer.invoke('get-shortcuts-config');
+                const container = document.getElementById('shortcuts-list');
+                
+                container.innerHTML = shortcutsData.map(item => `
+                    <div class="shortcut-row">
+                        <span class="shortcut-label">${item.label}</span>
+                        <input type="text" 
+                               class="shortcut-key-input" 
+                               data-action="${item.action}" 
+                               value="${item.value}" 
+                               readonly
+                               placeholder="Нажмите сочетание..."
+                        >
+                    </div>
+                `).join('');
+
+                document.querySelectorAll('.shortcut-key-input').forEach(input => {
+                    input.addEventListener('keydown', handleShortcutCapture);
+                });
+            } catch (err) {
+                console.error("Ошибка инициализации интерфейса хоткеев:", err);
+            }
+        }
+
+        function handleShortcutCapture(e) {
+            e.preventDefault();
+            e.stopPropagation();
+
+            if (e.key === 'Backspace' || e.key === 'Delete') {
+                this.value = '';
+                return;
+            }
+
+            if (['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) return;
+
+            const accelerators = [];
+            
+            if (e.ctrlKey || e.metaKey) accelerators.push('CommandOrControl');
+            if (e.altKey) accelerators.push('Alt');
+            if (e.shiftKey) accelerators.push('Shift');
+
+            let keyName = e.key;
+            
+            if (keyName === ' ') keyName = 'Space';
+            if (keyName === '`') keyName = '`';
+            if (keyName.length === 1) keyName = keyName.toUpperCase();
+
+            accelerators.push(keyName);
+            this.value = accelerators.join('+');
+        }
+
+        document.getElementById('save-shortcuts-btn').onclick = async () => {
+            const inputs = document.querySelectorAll('.shortcut-key-input');
+            const newMap = {};
+            
+            inputs.forEach(input => {
+                newMap[input.dataset.action] = input.value;
+            });
+
+            const result = await ipcRenderer.invoke('save-shortcuts-config', newMap);
+            if (result.success) {
+                const btn = document.getElementById('save-shortcuts-btn');
+                const originalText = btn.innerText;
+                btn.innerText = "✓ Сохранено!";
+                btn.style.background = "#98971a";
+                setTimeout(() => {
+                    btn.innerText = originalText;
+                    btn.style.background = "#ea6962";
+                }, 1500);
+            } else {
+                alert('Не удалось применить: ' + result.error);
+            }
+        };
+
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') window.close();
+        });
+
+        initShortcutsUI();
+    </script>
+</body>
+</html>

@@ -141,8 +141,22 @@ window.statusbarStyles = `
       }
 
       .bookmark-trigger {
-          opacity: 0.7;
+          border: none;
+          opacity: 0.5;
+          background: var(--flavour);
+          color: rgba(212, 190, 152, 0.5);
+          cursor: pointer;
           transition: opacity 0.2s;
       }
       .bookmark-trigger:hover { opacity: 1; }
+
+     .archive-trigger {
+          border: none;
+          opacity: 0.5;
+          background: var(--flavour);
+          color: rgba(212, 190, 152, 0.5);
+          cursor: pointer;
+          transition: opacity 0.2s;
+      }
+      .archive-trigger:hover { opacity: 1; }
 `;

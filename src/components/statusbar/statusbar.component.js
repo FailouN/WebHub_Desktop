@@ -42,9 +42,13 @@ class Statusbar extends Component {
               </button>
               <ul class="indicator"></ul>
               <div class="widgets col-end">
-                 <button class="widget bookmark-trigger" title="Закладки" style="background:none; border:none; color:inherit; cursor:pointer;">
-                    <i class="material-icons">bookmarks</i>
-                 </button>
+                  <button class="widget archive-trigger" title="Архив">
+                     <i class="material-icons">inventory_2</i>
+                  </button>
+
+                  <button class="widget bookmark-trigger" title="Закладки">
+                     <i class="material-icons">bookmarks</i>
+                  </button>
                   <current-time class="widget"></current-time>
                   <weather-forecast class="widget weather"></weather-forecast>
               </div>
@@ -63,6 +67,17 @@ class Statusbar extends Component {
     if (btn) {
       btn.onclick = () => {
         this.dispatchEvent(new CustomEvent('toggle-bookmarks', {
+          bubbles: true,
+          composed: true
+        }));
+      };
+    }
+
+    const archiveBtn = this.shadowRoot.querySelector('.archive-trigger');
+    if (archiveBtn) {
+      archiveBtn.onclick = () => {
+        // Отправляем событие, которое поймает ваш основной скрипт (index.html или preload)
+        this.dispatchEvent(new CustomEvent('toggle-archive', {
           bubbles: true,
           composed: true
         }));
