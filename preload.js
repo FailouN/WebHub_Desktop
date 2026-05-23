@@ -1,6 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 const validChannels = [
+    'translate-text-request',
     'toggle-shortcuts-window',
     'get-shortcuts-config',
     'save-shortcuts-config',
@@ -14,7 +15,7 @@ const validChannels = [
     'get-archive-items', 
     'request-active-tab-data',   
     'active-tab-data-response', 
-    'open-new-tab',             
+    'open-new-tab',               
     'force-open-url',          
     'delete-from-archive',
     'rename-in-archive',
@@ -28,8 +29,8 @@ const validChannels = [
     'widget-update', 
     'go-back', 
     'show-context-menu', 
-    'window-minimize',   
-    'window-maximize',   
+    'window-minimize',    
+    'window-maximize',    
     'window-close',
     'fullscreen-toggled',
     'get-proxy-bypass-list',
@@ -41,10 +42,16 @@ const validChannels = [
     'execute-discord-mute',
     'execute-yandex-play',
     'execute-yandex-next',
-    'execute-yandex-prev'
+    'execute-yandex-prev',
+    // Добавлен канал для переводчика:
+    'translate-array',
+    'local-translate-array'
 ];
 
 contextBridge.exposeInMainWorld('electronAPI', {
+    sendTranslationRequest: (textArray) => ipcRenderer.send('translate-text-request', textArray),
+    onTranslationChunk: (callback) => ipcRenderer.on('translate-text-chunk', (e, data) => callback(data)),
+    onTranslationFinal: (callback) => ipcRenderer.on('translate-text-final', (e, data) => callback(data)),
     send: (channel, data) => {
         if (validChannels.includes(channel)) {
             ipcRenderer.send(channel, data);
@@ -57,7 +64,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
             
             ipcRenderer.on(channel, subscription);
             
-
+            // Возвращаем функцию отписки, чтобы избежать утечек памяти
             return () => {
                 ipcRenderer.removeListener(channel, subscription);
             };

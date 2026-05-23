@@ -11,7 +11,10 @@ function createHeader() {
                 <span>WebHub Desktop</span>
             </div>
         </div>
-        <div class="header-controls">
+        <div class="header-controls" style="display: flex; align-items: center;">
+            <button id="translate-btn" title="Перевести страницу" style="margin-right: 15px; cursor: pointer; background: none; border: none; color: inherit; font-size: 14px;">
+                文/А
+            </button>
             <button id="min-btn">—</button>
             <button id="max-btn">▢</button>
             <button id="close-btn">✕</button>
@@ -19,6 +22,13 @@ function createHeader() {
     `;
 
     document.body.prepend(header);
+
+    // Обработчик для кнопки перевода — отправляем сигнал, который поймает tabs.component.js
+    document.getElementById('translate-btn').onclick = () => {
+        console.log("Header: Клик по кнопке перевода, отправляем глобальный триггер");
+        const translateEvent = new CustomEvent('trigger-webhub-translate');
+        window.dispatchEvent(translateEvent);
+    };
 
     // Проверяем наличие API перед использованием
     if (window.electronAPI) {
@@ -34,7 +44,7 @@ function createHeader() {
 
 // Слушатель событий: убираем 'event', так как в preload.js он уже отфильтрован
 if (window.electronAPI && window.electronAPI.on) {
-    window.electronAPI.on('fullscreen-toggled', (isFullScreen) => { // Исправлено: только один аргумент
+    window.electronAPI.on('fullscreen-toggled', (isFullScreen) => { 
         if (isFullScreen) {
             document.body.classList.add('fullscreen-mode');
         } else {

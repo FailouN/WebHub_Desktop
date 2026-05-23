@@ -1,17 +1,11 @@
+// webview.injections.js
+
 const WebviewInjections = {
-    // 1. Все CSS инъекции
+    // 1. Все CSS инъекции (Чистый CSS, без JS-кода внутри!)
     getCSS: () => `
         ::-webkit-scrollbar { 
             width: 0px !important; 
             display: none !important; 
-        }
-
-        document.addEventListener('fullscreenerror', (e) => {
-            console.error('Fullscreen error caught:', e);
-        });
-
-        if (!document.fullscreenEnabled) {
-            Object.defineProperty(document, 'fullscreenEnabled', { value: true });
         }
 
         /* Стиль плашки выбора аккаунта */
@@ -61,6 +55,15 @@ const WebviewInjections = {
 
     // 2. Все JS инъекции
     getJS: () => `
+        // Исправление Fullscreen (перенесли из CSS в правильное место)
+        document.addEventListener('fullscreenerror', (e) => {
+            console.error('Fullscreen error caught:', e);
+        });
+
+        if (!document.fullscreenEnabled) {
+            Object.defineProperty(document, 'fullscreenEnabled', { value: true });
+        }
+
         // Горячие клавиши внутри сайта
         window.addEventListener('keydown', (e) => {
             if (e.ctrlKey && e.code === 'KeyD') {
@@ -96,9 +99,8 @@ const WebviewInjections = {
                 // Запрашиваем существующие пароли для этого сайта у Main процесса
                 console.log('WEBVIEW_ACTION:GET_CREDS:' + window.location.hostname);
 
-                // --- СЦЕНАРИЙ 1: МЫ НА СТРАНИЦЕ ВВОДА ЛОГИНА (Шаг 1, например Google/VK) ---
+                // --- СЦЕНАРИЙ 1: МЫ НА СТРАНИЦЕ ВВОДА ЛОГИНА (Шаг 1) ---
                 if (loginInput && !passwordInput) {
-                    // Перехватываем ввод логина при сабмите формы или клике на "Далее"
                     const loginForm = loginInput.closest('form');
                     const saveCurrentLogin = () => {
                         if (loginInput && loginInput.value.trim()) {
@@ -109,33 +111,26 @@ const WebviewInjections = {
                     if (loginForm) {
                         loginForm.addEventListener('submit', saveCurrentLogin);
                     }
-                    // На всякий случай слушаем Enter в поле логина
                     loginInput.addEventListener('keydown', (e) => {
                         if (e.key === 'Enter') saveCurrentLogin();
                     });
                     
-                    // Навешиваем показ плашки, если для этого сайта уже есть сохраненные логины
                     loginInput.addEventListener('focus', () => showVaultDropdown(loginInput));
                     loginInput.addEventListener('click', () => showVaultDropdown(loginInput));
                 }
 
                 // --- СЦЕНАРИЙ 2: МЫ НА СТРАНИЦЕ ВВОДА ПАРОЛЯ (Шаг 2) ---
                 if (passwordInput) {
-                    // Если поле логина есть на этой же странице, берем его. 
-                    // Если его нет (как в Google), вытягиваем то, что сохранили на Шаге 1 из sessionStorage
                     if (!loginInput || !loginInput.value.trim()) {
                         const tempLogin = sessionStorage.getItem('webhub_temp_login');
                         if (tempLogin) {
-                            // Создаем виртуальный объект-заглушку для логина, чтобы логика сохранения не ломалась
                             loginInput = { value: tempLogin };
                         }
                     }
 
-                    // Навешиваем вызов плашки на поле пароля
                     passwordInput.addEventListener('focus', () => showVaultDropdown(passwordInput));
                     passwordInput.addEventListener('click', () => showVaultDropdown(passwordInput));
 
-                    // Перехват финальной отправки формы с паролем
                     const passForm = passwordInput.closest('form') || document;
                     
                     const handlePasswordSubmit = () => {
@@ -143,16 +138,13 @@ const WebviewInjections = {
                         const p = passwordInput.value;
                         if (!u || !p) return;
 
-                        // Отправляем на сохранение в main.js
                         console.log('WEBVIEW_ACTION:SAVE_CREDS:' + window.location.href + '|||' + u + '|||' + p);
-                        // Очищаем временный буфер
                         sessionStorage.removeItem('webhub_temp_login');
                     };
 
                     if (passForm && passForm.tagName === 'FORM') {
                         passForm.addEventListener('submit', handlePasswordSubmit);
                     } else {
-                        // Если формы нет (кнопка на DIV-ах), перехватываем Enter на поле пароля
                         passwordInput.addEventListener('keydown', (e) => {
                             if (e.key === 'Enter') handlePasswordSubmit();
                         });
@@ -180,17 +172,14 @@ const WebviewInjections = {
                         item.addEventListener('mousedown', (e) => {
                             e.preventDefault();
                             
-                            // Заполняем логин (если мы на первом шаге или поле доступно)
                             const currentRealLogin = document.querySelector('input[type="text"], input[type="email"], input[type="tel"]');
                             if (currentRealLogin) {
                                 currentRealLogin.value = acc.username;
                                 currentRealLogin.dispatchEvent(new Event('input', { bubbles: true }));
                             }
                             
-                            // Сохраняем в кэш сессии (поможет, если мы кликнули плашку на первом шаге)
                             sessionStorage.setItem('webhub_temp_login', acc.username);
 
-                            // Заполняем пароль (если мы уже на шаге ввода пароля)
                             if (passwordInput) {
                                 passwordInput.value = acc.password;
                                 passwordInput.dispatchEvent(new Event('input', { bubbles: true }));
@@ -215,7 +204,6 @@ const WebviewInjections = {
                     if (oldContainer) oldContainer.remove();
                 }
 
-                // Закрытие при клике мимо
                 document.addEventListener('mousedown', (e) => {
                     if (!e.target.classList.contains('webhub-vault-item')) {
                         removeVaultDropdown();
@@ -223,19 +211,16 @@ const WebviewInjections = {
                 });
             }
 
-            // Слушаем ответы из main.js
             window.addEventListener('message', function(event) {
                 if (event.data && event.data.type === 'VAULT_FILL_DATA') {
                     availableAccounts = event.data.accounts || [];
                 }
             });
 
-            // Наблюдатель (MutationObserver) для SPA-сайтов (динамическая смена экранов без перезагрузки)
             const observer = new MutationObserver(() => {
                 const hasPass = document.querySelector('input[type="password"]');
                 const hasLog = document.querySelector('input[type="text"], input[type="email"], input[type="tel"]');
                 if (hasPass || hasLog) {
-                    // Небольшой дебаунс, чтобы не спамить при каждом изменении DOM
                     clearTimeout(window.vaultTimeout);
                     window.vaultTimeout = setTimeout(initVault, 300);
                 }
@@ -245,7 +230,6 @@ const WebviewInjections = {
                 observer.observe(document.body, { childList: true, subtree: true });
             }
 
-            // Первичный запуск
             if (document.readyState === 'loading') {
                 document.addEventListener('DOMContentLoaded', initVault);
             } else {
@@ -253,5 +237,15 @@ const WebviewInjections = {
             }
             setTimeout(initVault, 1000);
         })();
+
+        // =======================================================
+        // ТРИГГЕР ЛОКАЛЬНОГО ПЕРЕВОДА СТРАНИЦЫ ДЛЯ TABS.COMPONENT
+        // =======================================================
+        window.addEventListener('message', (event) => {
+            if (event.data && event.data.action === 'execute-local-translation') {
+                console.log("Webview Injection: Получен внешний сигнал. Вызываем триггер для Tabs Component...");
+                window.dispatchEvent(new CustomEvent('trigger-webhub-translate'));
+            }
+        });
     `
 };

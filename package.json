@@ -13,6 +13,7 @@
   "build": {
     "appId": "com.WebHub.Desktop",
     "productName": "WebHub_Desktop",
+    "compression": "maximum",
     "directories": {
       "output": "dist"
     },
@@ -23,13 +24,34 @@
         "repo": "WebHub_Desktop"
       }
     ],
+    "files": [
+      "**/*",
+      "!python-env/**/*",
+      "!opus_en_ru_ct2/**/*",
+      "!user_data/**/*",
+      "!dist/**/*",
+      "!*.exe",
+      "!*.msi"
+    ],
     "extraResources": [
       {
         "from": "user_data/",
         "to": "user_data/",
-        "filter": [
-          "**/*"
-        ]
+        "filter": ["**/*"]
+      },
+      {
+        "from": "python-env/",
+        "to": "python-env/",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "opus_en_ru_ct2/",
+        "to": "opus_en_ru_ct2/",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "translator-engine.py",
+        "to": "translator-engine.py"
       }
     ],
     "win": {

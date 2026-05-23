@@ -1,7 +1,9 @@
 // main.js
 const { app, BrowserWindow, globalShortcut, ipcMain, session, Menu, dialog } = require('electron');
+const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const readline = require('readline');
 
 // Подключение внешних изолированных модулей
 const { setupBlocker, disableBlocker } = require('./adblocker');
@@ -15,6 +17,23 @@ const { setupShortcutService } = require('./shortcut-service');
 
 let isAdBlockEnabled = true;
 let vaultService = null; 
+
+// Динамически определяем пути для сборки и девелопмента
+const basePath = app.isPackaged ? process.resourcesPath : __dirname;
+
+// Путь к бинарнику Питон (вresources/python-env/python.exe при сборке)
+const pythonExecutable = path.join(basePath, 'python-env', 'python.exe');
+
+// ИСПРАВЛЕНИЕ: Теперь скрипт ищется в корне resources/ вне архива asar
+const enginePath = app.isPackaged 
+    ? path.join(process.resourcesPath, 'translator-engine.py') 
+    : path.join(__dirname, 'translator-engine.py');
+
+console.log(`[Main Debug Paths]:
+  -> Python EXE: ${pythonExecutable}
+  -> Engine Script: ${enginePath}
+  -> Is Packaged?: ${app.isPackaged}`);
+
 
 // 1. ПОДКЛЮЧЕНИЕ ОБНОВЛЕНИЙ И ЛОГОВ
 const { autoUpdater } = require('electron-updater');
@@ -32,7 +51,7 @@ if (!fs.existsSync(userDataPath)) {
 // Переопределяем userData путь на наш кастомный профиль
 app.setPath('userData', userDataPath);
 
-// ТЕПЕРЬ МОЖНО БЕЗОПАСНО ИНИЦИАЛИЗИРОВАТЬ СЕРВИС ПАРОЛЕЙ
+// ИНИЦИАЛИЗАЦИЯ СЕРВИСА ПАРОЛЕЙ
 vaultService = setupVaultService(userDataPath);
 setupPasswordService(userDataPath, vaultService);
 
@@ -60,10 +79,115 @@ if (!gpuActive) {
 
 app.commandLine.appendSwitch('disable-blink-features', 'AutomationControlled');
 
-// Инициализация остальных сервисов (кроме shortcutService, он пойдет в ready)
+// Инициализация остальных сервисов
 const windowService = setupWindowService(userDataPath);
 const proxyService = setupProxyService(userDataPath, createApplicationMenu);
 const archiveService = setupArchiveService(userDataPath);
+
+// =================================================================
+// СТРИМИНГОВЫЙ ОБРАБОТЧИК ПЕРЕВОДА (ПОСТРОЧНЫЙ ВЫВОД)
+// =================================================================
+ipcMain.on('translate-text-request', (event, textArray) => {
+    console.log(`[Main]: Стриминг-перевод запущен для ${textArray.length} строк.`);
+
+    // 1. Спавним Python в момент запроса
+    const engine = spawn(pythonExecutable, [enginePath], {
+        env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
+    });
+
+    const rl = readline.createInterface({
+        input: engine.stdout,
+        terminal: false
+    });
+
+    let isEngineReady = false;
+
+    // Таймер безопасности: если процесс намертво зависнет — принудительно тушим через 45 сек
+    const safetyTimeout = setTimeout(() => {
+        console.error("[Main]: Превышено общее время стриминг-перевода. Принудительное закрытие.");
+        if (!engine.killed) engine.kill();
+    }, 45000);
+
+    // Функция, которая поочередно скармливает строки в Python
+    const sendTextsToPython = () => {
+        console.log("[Main]: Движок готов. Начинаю отправку микро-батчами...");
+        
+        const BATCH_SIZE = 20; // Оптимальный размер пачки для параллелизма
+        
+        for (let i = 0; i < textArray.length; i += BATCH_SIZE) {
+            const chunk = textArray.slice(i, i + BATCH_SIZE);
+            
+            // Формируем массив объектов для этой пачки
+            const batchData = chunk.map((text, index) => ({
+                id: i + index, // Сохраняем реальный индекс строки
+                text: text
+            }));
+
+            try {
+                engine.stdin.write(JSON.stringify({ type: "batch", items: batchData }) + "\n");
+            } catch (e) {
+                console.error(`[Main]: Ошибка отправки пачки ${i}:`, e);
+            }
+        }
+
+        // Финальный маркер завершения
+        try {
+            engine.stdin.write(JSON.stringify({ type: "signal", text: "__END_OF_BATCH__" }) + "\n");
+        } catch (e) {}
+    };
+
+    engine.on('error', (err) => {
+        console.error("[Main CRITICAL]: Не удалось запустить локальный Python!", err);
+        clearTimeout(safetyTimeout);
+        event.reply('translate-text-final', { success: false, error: err.message });
+    });
+
+    // Слушаем сообщения об ошибках и маркеры готовности из stderr
+    engine.stderr.on('data', (data) => {
+        const message = data.toString().trim();
+        
+        // Фильтруем тонны логов токенизатора, чтобы не забивать консоль Electron
+        if (!message.includes('[Debug]: TOKENS') && !message.includes('[Debug]: OUTPUT TOKENS')) {
+            console.error(`[Python Stderr]: ${message}`);
+        }
+        
+        // Проверяем готовность движка по вашим маркерам
+        if (!isEngineReady && (message.includes('Marian EN->RU loaded') || message.includes('Translator engine is ready'))) {
+            isEngineReady = true;
+            sendTextsToPython();
+        }
+    });
+
+    // Построчно ловим ответы из stdout Питона
+    rl.on('line', (line) => {
+        try {
+            if (!line.startsWith('{')) return;
+            const response = JSON.parse(line);
+
+            if (response.status === 'chunk') {
+                // МГНОВЕННО пересылаем готовую строчку обратно в Renderer (на веб-страницу)
+                event.reply('translate-text-chunk', {
+                    id: response.id,
+                    translated: response.translated
+                });
+            } 
+            else if (response.status === 'completed') {
+                console.log("[Main]: Python подтвердил успешную обработку всей страницы.");
+                clearTimeout(safetyTimeout);
+                if (!engine.killed) engine.kill();
+            }
+        } catch (e) {
+            console.error("[Main]: Ошибка парсинга потоковой строки от Python:", e);
+        }
+    });
+
+    engine.on('exit', (code) => {
+        console.log(`[Main]: Стриминг-процесс Python успешно завершен (Код: ${code}). ОЗУ полностью очищена.`);
+        clearTimeout(safetyTimeout);
+        // Оповещаем фронтенд, что перевод завершен и можно убрать индикаторы загрузки, если они есть
+        event.reply('translate-text-final', { success: true });
+    });
+});
 
 const AGENTS = {
     desktop: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36 WebHubSecureSrv_v3",
@@ -235,7 +359,6 @@ async function createWindow() {
     win.webContents.on('enter-html-full-screen', () => { win.setFullScreen(true); win.webContents.send('fullscreen-toggled', true); });
     win.webContents.on('leave-html-full-screen', () => { win.setFullScreen(false); win.webContents.send('fullscreen-toggled', false); });
     
-    // Перехват сообщений от webview для работы менеджера паролей
     win.webContents.on('did-attach-webview', (event, webContents) => {
         webContents.on('console-message', (e) => {
             const message = e.message;
@@ -285,11 +408,10 @@ async function createWindow() {
 app.on('login', (event, webContents, request, authInfo, callback) => {
     if (authInfo.isProxy) {
         event.preventDefault();
-        callback('ЛОГИН', 'ПАРОЛЬ'); 
+        callback('admin', 'WebHub_Super_Secret_2026'); 
     }
 });
 
-// Функция вещания команд на вкладки
 function broadcast(channel, data = null) {
     BrowserWindow.getAllWindows().forEach(win => {
         try {
@@ -303,7 +425,6 @@ function broadcast(channel, data = null) {
     });
 }
 
-// Готовность приложения
 app.whenReady().then(async () => {
     setupShortcutService(userDataPath, broadcast, archiveService);
 
@@ -316,7 +437,6 @@ app.whenReady().then(async () => {
         if (mainWin) mainWin.webContents.send('force-open-url', url);
     });
 
-    // Полноэкранный режим
     globalShortcut.register('F11', () => {
         const focusedWin = BrowserWindow.getFocusedWindow();
         if (focusedWin) {
@@ -331,9 +451,10 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); }); 
-app.on('will-quit', () => { globalShortcut.unregisterAll(); });
+app.on('will-quit', () => { 
+    globalShortcut.unregisterAll(); 
+});
 
-// Безопасный проброс ответа обратно в окно менеджера паролей через прямую отправку
 ipcMain.on('active-tab-pass-data-response', (event, data) => {
     const wins = BrowserWindow.getAllWindows();
     const passWin = wins.find(w => !w.isDestroyed() && w.webContents.getURL().includes('password-manager.html'));
