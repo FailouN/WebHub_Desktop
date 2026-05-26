@@ -18,7 +18,6 @@
             box-sizing: border-box;
         }
 
-        /* Новая компактная шапка с поддержкой перетаскивания окна */
         .window-header {
             padding: 15px 20px;
             display: flex;
@@ -39,11 +38,10 @@
         .header-right-side {
             display: flex;
             align-items: center;
-            gap: 15px;
-            -webkit-app-region: no-drag; /* Кнопки внутри шапки должны кликаться */
+            gap: 10px;
+            -webkit-app-region: no-drag;
         }
 
-        /* Кнопка закрытия окна */
         .header-close-btn {
             background: none;
             border: none;
@@ -69,7 +67,20 @@
         }
         #add-current-btn:hover { background: #d35d56; transform: scale(1.03); }
 
-        /* Кнопки фильтров в шапке */
+        /* СТИЛЬ КНОПКИ БУФЕРА ОБМЕНА */
+        #add-clipboard-btn {
+            background: #2a2a2a;
+            border: 1px solid rgba(255,255,255,0.15);
+            color: #eee;
+            padding: 6px 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 500;
+            transition: 0.2s;
+        }
+        #add-clipboard-btn:hover { background: #3a3a3a; border-color: #ea6962; }
+
         .groups-bar {
             display: flex;
             gap: 10px;
@@ -97,29 +108,26 @@
 
         .list {
             flex: 1;
-            padding: 25px 20px 25px 25px; /* Справа чуть меньше отступ из-за скроллбара */
+            padding: 25px 20px 25px 25px;
             display: grid;
             grid-template-columns: repeat(3, 1fr); 
             gap: 25px;
             overflow-y: auto;
             align-content: start;
             scroll-behavior: smooth;
+            transition: background 0.3s, border 0.3s;
         }
 
-        /* --- Фирменный кастомный скроллбар для сетки архива --- */
-        .list::-webkit-scrollbar {
-            width: 6px; /* Делаем тонким */
+        /* КРАСИВАЯ ПОДСВЕТКА ПРИ ПЕРЕТАСКИВАНИИ ССЫЛКИ В ОКНО */
+        .list.drag-over {
+            background: rgba(234, 105, 98, 0.05) !important;
+            box-shadow: inset 0 0 20px rgba(234, 105, 98, 0.15);
         }
-        .list::-webkit-scrollbar-track {
-            background: transparent;
-        }
-        .list::-webkit-scrollbar-thumb {
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 10px;
-        }
-        .list::-webkit-scrollbar-thumb:hover {
-            background: rgba(234, 105, 98, 0.4); /* Мягкий красный фокус */
-        }
+
+        .list::-webkit-scrollbar { width: 6px; }
+        .list::-webkit-scrollbar-track { background: transparent; }
+        .list::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 10px; }
+        .list::-webkit-scrollbar-thumb:hover { background: rgba(234, 105, 98, 0.4); }
 
         .card {
             background: #2a2a2a;
@@ -135,7 +143,6 @@
             z-index: 1;
         }
 
-        /* ЭФФЕКТ ВЫЛЕЗАНИЯ */
         .card:hover {
             transform: translateY(-8px) scale(1.04);
             border-color: #ea6962;
@@ -172,6 +179,7 @@
             width: 100%;
             background: #1a1a1a;
             overflow: hidden;
+            position: relative;
         }
 
         .card-body img {
@@ -181,9 +189,27 @@
             transition: 0.5s ease;
         }
 
-        .card:hover .card-body img {
-            transform: scale(1.1);
+        .card:hover .card-body img { transform: scale(1.1); }
+
+        /* ДИЗАЙН ЗАГЛУШКИ ДЛЯ ВНЕШНИХ ССЫЛОК БЕЗ СКРИНШОТА */
+        .placeholder-thumb {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #222, #181818);
+            color: #666;
+            font-size: 11px;
+            text-align: center;
+            padding: 15px;
+            box-sizing: border-box;
+            border-top: 1px solid rgba(255,255,255,0.02);
         }
+        .placeholder-thumb svg { margin-bottom: 8px; fill: #444; transition: 0.3s; }
+        .card:hover .placeholder-thumb svg { fill: #ea6962; transform: scale(1.1); }
+        .placeholder-domain { color: #888; font-weight: bold; margin-top: 4px; font-size: 12px;}
 
         #context-menu {
             display: none;
@@ -197,14 +223,7 @@
             box-shadow: 0 10px 30px rgba(0,0,0,0.7);
         }
 
-        .ctx-item {
-            padding: 10px 16px;
-            cursor: pointer;
-            font-size: 13px;
-            color: #ddd;
-            transition: 0.2s;
-        }
-
+        .ctx-item { padding: 10px 16px; cursor: pointer; font-size: 13px; color: #ddd; transition: 0.2s; }
         .ctx-item:hover { background: rgba(255,255,255,0.1); color: #fff; }
         .ctx-item.delete { color: #f7768e; }
 
@@ -217,7 +236,6 @@
             border-top: 1px solid rgba(255, 255, 255, 0.03);
         }
         
-        /* Модальное окно переименования */
         #rename-modal {
             display: none;
             position: fixed;
@@ -255,24 +273,13 @@
         }
 
         .modal-content input:focus { border-color: #ea6962; }
-
         .modal-btns { display: flex; justify-content: flex-end; gap: 12px; }
-        .modal-btns button {
-            padding: 8px 18px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 13px;
-            font-weight: 600;
-            border: none;
-            transition: 0.2s;
-        }
-
+        .modal-btns button { padding: 8px 18px; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 600; border: none; transition: 0.2s; }
         #cancel-rename { background: transparent; color: #888; }
         #cancel-rename:hover { color: white; }
         #save-rename { background: #ea6962; color: white; }
         #save-rename:hover { background: #d35d56; }
 
-        /* Метка группы на карточке */
         .group-tag {
             position: absolute;
             top: 45px;
@@ -294,6 +301,7 @@
     <div class="window-header">
         <div class="header-title">📦 Визуальный Архив</div>
         <div class="header-right-side">
+            <button id="add-clipboard-btn" title="Добавить ссылку из буфера обмена (Ctrl+C в другом браузере)">📋 Из буфера</button>
             <button id="add-current-btn">Отложить текущую</button>
             <button class="header-close-btn" onclick="window.close()">✕</button>
         </div>
@@ -331,19 +339,19 @@
         </div>
     </div>
 
-    <div class="footer">ЛКМ: Открыть | ПКМ: Управление | <kbd>ESC</kbd>: Закрыть</div>
+    <div class="footer">ЛКМ: Открыть | ПКМ: Управление | Перетащите ссылку извне | <kbd>ESC</kbd>: Закрыть</div>
 
     <script>
-        const { ipcRenderer } = require('electron');
+        const { ipcRenderer, clipboard } = require('electron');
 
         let currentTabData = null;
         let rightClickedItem = null;
         const ctxMenu = document.getElementById('context-menu');
+        const container = document.getElementById('archive-list');
         let currentFilter = 'all';
 
         async function loadArchive() {
             const items = await ipcRenderer.invoke('get-archive-items');
-            const container = document.getElementById('archive-list');
             
             const filtered = currentFilter === 'all' 
                 ? items 
@@ -352,39 +360,104 @@
             container.innerHTML = filtered.slice().reverse().map(item => {
                 let domain = '';
                 try { domain = new URL(item.url).hostname; } catch(e) {}
-                const thumb = item.thumbnail || 'https://via.placeholder.com/300x180';
+                
+                // Если родного скриншота нет, шлем запрос к API WordPress.
+                // Если API вернет ошибку (onerror), сработает наша изолированная функция handleMissingThumb
+                const bodyContent = item.thumbnail 
+                    ? `<img src="${item.thumbnail}" loading="lazy">` 
+                    : `<img src="https://public-api.wordpress.com/rest/v1.1/mshots/v1/${encodeURIComponent(item.url)}?w=600&h=375" 
+                            loading="lazy" 
+                            onerror="handleMissingThumb(this, '${domain}')">`;
                 
                 return `
                     <div class="card" onclick="openLink('${item.url}')" data-info='${JSON.stringify(item).replace(/'/g, "&apos;")}'>
                         ${item.group ? `<div class="group-tag">${item.group}</div>` : ''}
                         <div class="card-header">
-                            <img src="https://www.google.com/s2/favicons?domain=${domain}&sz=64">
+                            <img src="https://www.google.com/s2/favicons?domain=${domain}&sz=64" onerror="this.src='https://via.placeholder.com/16'">
                             <div class="title">${item.title || item.url}</div>
                         </div>
                         <div class="card-body">
-                            <img src="${thumb}" loading="lazy">
+                            ${bodyContent}
                         </div>
                     </div>
                 `;
             }).join('');
         }
+ 
+        function handleMissingThumb(imgElement, domain) {
+            imgElement.onerror = null; // Предотвращаем бесконечный цикл, если что-то пойдет не так
+            imgElement.outerHTML = `
+                <div class="placeholder-thumb">
+                    <svg width="32" height="32" viewBox="0 0 24 24">
+                        <path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"/>
+                    </svg>
+                    <span>Внешняя закладка</span>
+                    <span class="placeholder-domain">${domain}</span>
+                </div>
+            `;
+        }
+
+        // --- ЛОГИКА ДЛЯ КНОПКИ «ИЗ БУФЕРА» ---
+        document.getElementById('add-clipboard-btn').onclick = async () => {
+            const text = clipboard.readText().trim();
+            if (text && (text.startsWith('http://') || text.startsWith('https://'))) {
+                let domain = text;
+                try { domain = new URL(text).hostname; } catch(e) {}
+                
+                const externalData = {
+                    url: text,
+                    title: domain, // В качестве заголовка ставим домен
+                    group: "Разное",
+                    isExternal: true // Флаг, что ссылка пришла снаружи
+                };
+
+                await ipcRenderer.send('save-to-archive-from-picker', externalData);
+                setTimeout(loadArchive, 300);
+            } else {
+                alert('В буфере обмена нет корректной ссылки (должна начинаться с http:// или https://)');
+            }
+        };
+
+        // --- ЛОГИКА ДЛЯ DRAG-AND-DROP (ПЕРЕТАСКИВАНИЕ) ---
+        container.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            container.classList.add('drag-over');
+        });
+
+        container.addEventListener('dragleave', () => {
+            container.classList.remove('drag-over');
+        });
+
+        container.addEventListener('drop', async (e) => {
+            e.preventDefault();
+            container.classList.remove('drag-over');
+
+            // Извлекаем URL из перетащенного объекта
+            let url = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text');
+            if (url) url = url.trim().split('\n')[0]; // На случай если перенесли несколько строк
+
+            if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
+                let domain = url;
+                try { domain = new URL(url).hostname; } catch(e) {}
+
+                const externalData = {
+                    url: url,
+                    title: domain,
+                    group: "Разное",
+                    isExternal: true
+                };
+
+                await ipcRenderer.send('save-to-archive-from-picker', externalData);
+                setTimeout(loadArchive, 300);
+            }
+        });
+
 
         function setGroup(groupName) {
             if (rightClickedItem && rightClickedItem.id) {
-                console.log("Отправка группы:", groupName, "для ID:", rightClickedItem.id);
-                
-                ipcRenderer.send('change-item-group', { 
-                    id: rightClickedItem.id, 
-                    group: groupName 
-                });
-
+                ipcRenderer.send('change-item-group', { id: rightClickedItem.id, group: groupName });
                 ctxMenu.style.display = 'none';
-
-                setTimeout(() => {
-                    loadArchive();
-                }, 250); 
-            } else {
-                console.error("Ошибка: rightClickedItem не определен");
+                setTimeout(loadArchive, 250); 
             }
         }
 
@@ -412,7 +485,7 @@
         document.getElementById('ctx-delete').onclick = () => {
             if (rightClickedItem) {
                 ipcRenderer.send('delete-from-archive', rightClickedItem.id);
-                loadArchive();
+                setTimeout(loadArchive, 200);
             }
         };
 
@@ -429,17 +502,12 @@
             }
         };
 
-        document.getElementById('cancel-rename').onclick = () => {
-            renameModal.style.display = 'none';
-        };
+        document.getElementById('cancel-rename').onclick = () => { renameModal.style.display = 'none'; };
 
         document.getElementById('save-rename').onclick = () => {
             const newTitle = renameInput.value.trim();
             if (newTitle && rightClickedItem) {
-                ipcRenderer.send('rename-in-archive', { 
-                    id: rightClickedItem.id, 
-                    title: newTitle 
-                });
+                ipcRenderer.send('rename-in-archive', { id: rightClickedItem.id, title: newTitle });
                 renameModal.style.display = 'none';
                 setTimeout(loadArchive, 200);
             }
@@ -457,6 +525,10 @@
                 btn.style.display = 'block';
                 btn.innerText = `📦 Отложить: ${data.title.substring(0, 15)}...`;
             }
+        });
+
+        ipcRenderer.on('archive-updated-external-thumb', () => {
+            loadArchive(); // Просто перерисовываем архив, и заглушка плавно сменится готовой картинкой!
         });
 
         document.getElementById('add-current-btn').onclick = async () => {

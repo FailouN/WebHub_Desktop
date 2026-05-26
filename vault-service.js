@@ -88,29 +88,39 @@ function setupVaultService(userDataPath) {
     }
 
     // Функция сохранения/обновления аккаунта (вызывается из main.js)
+    // Функция сохранения/обновления аккаунта (вызывается из main.js)
     function saveCredentials(url, username, password) {
         let list = readVault();
 
-        // Проверяем, есть ли уже запись для этого сайта и пользователя
-        const existingIndex = list.findIndex(item => item.url === url && item.username === username);
+        // Очищаем URL: оставляем только протокол + домен (например, https://accounts.google.com)
+        let cleanedUrl = url;
+        try {
+            const parsed = new URL(url);
+            cleanedUrl = parsed.origin; // заберёт только 'https://accounts.google.com'
+        } catch (e) {
+            console.error(`[Vault] Не удалось распарсить URL: ${url}, сохраняем как есть.`);
+        }
+
+        // Проверяем по очищенному URL
+        const existingIndex = list.findIndex(item => item.url === cleanedUrl && item.username === username);
 
         if (existingIndex !== -1) {
             // Если пароль изменился — обновляем
             if (list[existingIndex].password !== password) {
                 list[existingIndex].password = password;
-                console.log(`[Vault] Обновлен пароль для ${url}`);
+                console.log(`[Vault] Обновлен пароль для ${cleanedUrl}`);
             } else {
                 return; // Ничего не поменялось, выходим
             }
         } else {
-            // Создаем новую запись
+            // Создаем новую запись с чистым URL
             list.push({
                 id: Date.now(),
-                url,
+                url: cleanedUrl,
                 username,
                 password
             });
-            console.log(`[Vault] Добавлен новый пароль для ${url}`);
+            console.log(`[Vault] Добавлен новый пароль для ${cleanedUrl}`);
         }
 
         saveVault(list);

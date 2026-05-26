@@ -229,7 +229,8 @@ class Tabs extends Component {
         newFrame.setAttribute('src', url);
         newFrame.setAttribute('data-id', id);
         newFrame.setAttribute('allowfullscreen', 'true');
-        newFrame.setAttribute('useragent', "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36 WebHubSecureSrv_v3");
+        newFrame.setAttribute('allowpopups', 'true'); 
+        newFrame.setAttribute('useragent', "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.7827.22 Safari/537.36 WebHub/4.0.0");
         newFrame.style.width = '100%';
         newFrame.style.height = '100%';
 
@@ -262,6 +263,31 @@ class Tabs extends Component {
 
             if (data === 'WEBVIEW_ACTION:GO_BACK' && newFrame.canGoBack()) newFrame.goBack();
             if (data === 'WEBVIEW_ACTION:GO_FORWARD' && newFrame.canGoForward()) newFrame.goForward();
+        });
+
+        // ПЕРЕХВАТ 1: Ссылки target="_blank" (Дискорд, Анимедия)
+        newFrame.addEventListener('new-window', (e) => {
+            e.preventDefault();
+            const targetUrl = e.url;
+            if (targetUrl && targetUrl !== 'about:blank') {
+                console.log("Система: Перехвачена ссылка target='_blank':", targetUrl);
+                this.openNewWindow(targetUrl);
+            }
+        });
+
+        // ПЕРЕХВАТ 2: Окна авторизации через window.open()
+        newFrame.addEventListener('did-create-window', (e) => {
+            const popupWindow = e.detail?.window || e.window; 
+            const popupUrl = e.detail?.options?.url || e.options?.url;
+
+            if (popupUrl && popupUrl !== 'about:blank') {
+                console.log("Система: Перехвачен JS-скрипт создания окна:", popupUrl);
+                this.openNewWindow(popupUrl);
+            }
+
+            if (popupWindow && typeof popupWindow.close === 'function') {
+                popupWindow.close();
+            }
         });
 
         fullContainer.appendChild(newFrame);

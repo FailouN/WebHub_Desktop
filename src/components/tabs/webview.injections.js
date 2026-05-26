@@ -54,11 +54,9 @@ const WebviewInjections = {
     `,
 
     // 2. Все JS инъекции
-    getJS: () => `
-        // Исправление Fullscreen (перенесли из CSS в правильное место)
-        document.addEventListener('fullscreenerror', (e) => {
-            console.error('Fullscreen error caught:', e);
-        });
+   getJS: () => `
+        // Исправление Fullscreen
+        document.addEventListener('fullscreenerror', (e) => {});
 
         if (!document.fullscreenEnabled) {
             Object.defineProperty(document, 'fullscreenEnabled', { value: true });
@@ -83,167 +81,270 @@ const WebviewInjections = {
             console.log('WEBVIEW_ACTION:EXTERNAL_CLICK');
         });
 
-        // ==========================================
-        // МЕНЕДЖЕР ПАРОЛЕЙ (УМНЫЙ ПОШАГОВЫЙ ПЕРЕХВАТ)
-        // ==========================================
+        // ===================================================
+        // УЛЬТИМАТИВНЫЙ МЕНЕДЖЕР ПАРОЛЕЙ (GOOGLE / MAIL.RU / SPA)
+        // ===================================================
         (function() {
-            let availableAccounts = []; 
+            let availableAccounts = [];
+            let lastFocusedInput = null;
 
-            function initVault() {
-                const passwordInput = document.querySelector('input[type="password"]');
+            let manualTypedLogin = '';
+            let manualTypedPassword = '';
+
+            const safeStorage = {
+                _backup: {},
+                setItem: function(key, value) {
+                    try {
+                        if (typeof sessionStorage !== 'undefined') {
+                            sessionStorage.setItem(key, value);
+                            return;
+                        }
+                    } catch(e) {}
+                    this._backup[key] = value;
+                },
+                getItem: function(key) {
+                    try {
+                        if (typeof sessionStorage !== 'undefined') {
+                            return sessionStorage.getItem(key);
+                        }
+                    } catch(e) {}
+                    return this._backup[key] || null;
+                },
+                removeItem: function(key) {
+                    try {
+                        if (typeof sessionStorage !== 'undefined') {
+                            sessionStorage.removeItem(key);
+                            return;
+                        }
+                    } catch(e) {}
+                    delete this._backup[key];
+                }
+            };
+
+            function getFormPair(relativeInput) {
+                if (!relativeInput) return { login: null, password: null };
                 
-                // Ищем любое потенциальное поле логина на текущем экране
-                const inputs = Array.from(document.querySelectorAll('input'));
-                let loginInput = inputs.find(i => i.type === 'text' || i.type === 'email' || i.type === 'tel');
-
-                // Запрашиваем существующие пароли для этого сайта у Main процесса
-                console.log('WEBVIEW_ACTION:GET_CREDS:' + window.location.hostname);
-
-                // --- СЦЕНАРИЙ 1: МЫ НА СТРАНИЦЕ ВВОДА ЛОГИНА (Шаг 1) ---
-                if (loginInput && !passwordInput) {
-                    const loginForm = loginInput.closest('form');
-                    const saveCurrentLogin = () => {
-                        if (loginInput && loginInput.value.trim()) {
-                            sessionStorage.setItem('webhub_temp_login', loginInput.value.trim());
-                        }
-                    };
-
-                    if (loginForm) {
-                        loginForm.addEventListener('submit', saveCurrentLogin);
-                    }
-                    loginInput.addEventListener('keydown', (e) => {
-                        if (e.key === 'Enter') saveCurrentLogin();
-                    });
-                    
-                    loginInput.addEventListener('focus', () => showVaultDropdown(loginInput));
-                    loginInput.addEventListener('click', () => showVaultDropdown(loginInput));
-                }
-
-                // --- СЦЕНАРИЙ 2: МЫ НА СТРАНИЦЕ ВВОДА ПАРОЛЯ (Шаг 2) ---
-                if (passwordInput) {
-                    if (!loginInput || !loginInput.value.trim()) {
-                        const tempLogin = sessionStorage.getItem('webhub_temp_login');
-                        if (tempLogin) {
-                            loginInput = { value: tempLogin };
-                        }
-                    }
-
-                    passwordInput.addEventListener('focus', () => showVaultDropdown(passwordInput));
-                    passwordInput.addEventListener('click', () => showVaultDropdown(passwordInput));
-
-                    const passForm = passwordInput.closest('form') || document;
-                    
-                    const handlePasswordSubmit = () => {
-                        const u = loginInput ? loginInput.value.trim() : '';
-                        const p = passwordInput.value;
-                        if (!u || !p) return;
-
-                        console.log('WEBVIEW_ACTION:SAVE_CREDS:' + window.location.href + '|||' + u + '|||' + p);
-                        sessionStorage.removeItem('webhub_temp_login');
-                    };
-
-                    if (passForm && passForm.tagName === 'FORM') {
-                        passForm.addEventListener('submit', handlePasswordSubmit);
-                    } else {
-                        passwordInput.addEventListener('keydown', (e) => {
-                            if (e.key === 'Enter') handlePasswordSubmit();
-                        });
+                let inputs = [];
+                if (relativeInput.form) {
+                    inputs = Array.from(relativeInput.form.querySelectorAll('input'));
+                } else {
+                    const box = relativeInput.closest('form, div[class*="login"], div[class*="form"], div[class*="auth"]') || relativeInput.parentElement || document;
+                    inputs = Array.from(box.querySelectorAll('input'));
+                    if (!inputs.some(i => i.type === 'password')) {
+                        inputs = Array.from(document.querySelectorAll('input'));
                     }
                 }
 
-                // --- ФУНКЦИИ ИНТЕРФЕЙСА ПЛАШКИ ---
-                function showVaultDropdown(targetInput) {
-                    removeVaultDropdown();
-                    if (!availableAccounts || availableAccounts.length === 0) return;
+                const password = inputs.find(i => i.type === 'password' || i.getAttribute('autocomplete') === 'current-password' || i.name?.toLowerCase().includes('password'));
+                
+                const login = inputs.find(i => i !== password && (
+                    i.type === 'email' || 
+                    i.type === 'tel' || 
+                    i.getAttribute('autocomplete')?.includes('username') ||
+                    i.name?.toLowerCase().includes('user') || 
+                    i.name?.toLowerCase().includes('login') ||
+                    i.id?.toLowerCase().includes('user') || 
+                    i.id?.toLowerCase().includes('login') ||
+                    (i.type === 'text' && window.getComputedStyle(i).display !== 'none')
+                ));
 
-                    const dropdown = document.createElement('div');
-                    dropdown.className = 'webhub-vault-dropdown';
-
-                    const title = document.createElement('div');
-                    title.className = 'webhub-vault-title';
-                    title.innerText = 'Выберите аккаунт';
-                    dropdown.appendChild(title);
-
-                    availableAccounts.forEach(acc => {
-                        const item = document.createElement('div');
-                        item.className = 'webhub-vault-item';
-                        item.innerText = acc.username;
-
-                        item.addEventListener('mousedown', (e) => {
-                            e.preventDefault();
-                            
-                            const currentRealLogin = document.querySelector('input[type="text"], input[type="email"], input[type="tel"]');
-                            if (currentRealLogin) {
-                                currentRealLogin.value = acc.username;
-                                currentRealLogin.dispatchEvent(new Event('input', { bubbles: true }));
-                            }
-                            
-                            sessionStorage.setItem('webhub_temp_login', acc.username);
-
-                            if (passwordInput) {
-                                passwordInput.value = acc.password;
-                                passwordInput.dispatchEvent(new Event('input', { bubbles: true }));
-                                passwordInput.dispatchEvent(new Event('change', { bubbles: true }));
-                            }
-                            removeVaultDropdown();
-                        });
-
-                        dropdown.appendChild(item);
-                    });
-
-                    document.body.appendChild(dropdown);
-
-                    const rect = targetInput.getBoundingClientRect();
-                    dropdown.style.top = (rect.bottom + window.scrollY) + 'px';
-                    dropdown.style.left = (rect.left + window.scrollX) + 'px';
-                    dropdown.style.width = rect.width + 'px';
-                }
-
-                function removeVaultDropdown() {
-                    const oldContainer = document.querySelector('.webhub-vault-dropdown');
-                    if (oldContainer) oldContainer.remove();
-                }
-
-                document.addEventListener('mousedown', (e) => {
-                    if (!e.target.classList.contains('webhub-vault-item')) {
-                        removeVaultDropdown();
-                    }
-                });
+                return { login, password };
             }
 
+            // Отслеживаем то, что пользователь вводит ручками
+            document.addEventListener('input', (e) => {
+                const target = e.target;
+                if (target && target.tagName === 'INPUT') {
+                    if (target.type === 'password' || target.getAttribute('autocomplete') === 'current-password') {
+                        manualTypedPassword = target.value;
+                    } else if (target.type === 'text' || target.type === 'email' || target.type === 'tel' || target.name === 'email' || target.getAttribute('autocomplete')?.includes('username')) {
+                        manualTypedLogin = target.value.trim();
+                    }
+                }
+            }, true);
+
+            function safeFillInput(input, value) {
+                if (!input) return;
+                try {
+                    input.focus();
+                    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+                    nativeInputValueSetter.call(input, value);
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                    input.dispatchEvent(new Event('change', { bubbles: true }));
+                } catch (e) {
+                    input.value = value;
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                    input.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+            }
+
+            // Функция перехвата и сборки учетных данных
+            function captureCurrentCredentials(triggerElement) {
+                const pair = getFormPair(triggerElement || lastFocusedInput);
+                
+                const currentPassword = pair.password ? pair.password.value : manualTypedPassword;
+                let currentLogin = pair.login ? pair.login.value.trim() : manualTypedLogin;
+
+                // ШАГ 1: Если на экране есть только логин (поле пароля отсутствует/скрыто)
+                if (!pair.password && currentLogin && !currentPassword) {
+                    safeStorage.setItem('webhub_step1_login', currentLogin);
+                    return;
+                }
+
+                // ШАГ 2: Если мы дошли до пароля, проверяем сохраненный логин из Шага 1
+                const savedStep1Login = safeStorage.getItem('webhub_step1_login');
+                if (currentPassword && savedStep1Login) {
+                    // Если текущий найденный на странице логин пустой или скрыт (как у Google), восстанавливаем его из памяти
+                    if (!currentLogin || currentLogin.length < 3 || (pair.login && window.getComputedStyle(pair.login).display === 'none')) {
+                        currentLogin = savedStep1Login;
+                    }
+                }
+
+                // Если собрали полный комплект — отправляем в Electron на сохранение
+                if (currentLogin && currentPassword && currentPassword.length > 2) {
+                    console.log('WEBVIEW_ACTION:SAVE_CREDS:' + window.location.href + '|||' + currentLogin + '|||' + currentPassword);
+                    safeStorage.removeItem('webhub_step1_login');
+                    manualTypedLogin = '';
+                    manualTypedPassword = '';
+                }
+            }
+
+            function requestCredentials() {
+                console.log('WEBVIEW_ACTION:GET_CREDS:' + window.location.hostname);
+            }
+
+            function showVaultDropdown(targetInput) {
+                removeVaultDropdown();
+                if (!availableAccounts || availableAccounts.length === 0) return;
+
+                const dropdown = document.createElement('div');
+                dropdown.className = 'webhub-vault-dropdown';
+
+                const title = document.createElement('div');
+                title.className = 'webhub-vault-title';
+                title.innerText = 'Выберите аккаунт';
+                dropdown.appendChild(title);
+
+                availableAccounts.forEach(acc => {
+                    const item = document.createElement('div');
+                    item.className = 'webhub-vault-item';
+                    item.innerText = acc.username;
+
+                    item.addEventListener('mousedown', (e) => {
+                        e.preventDefault();
+                        const pair = getFormPair(targetInput);
+
+                        if (pair.login) safeFillInput(pair.login, acc.username);
+                        safeStorage.setItem('webhub_step1_login', acc.username);
+
+                        let duration = 0;
+                        const passFillInterval = setInterval(() => {
+                            duration += 50;
+                            const freshPair = getFormPair(targetInput);
+
+                            if (freshPair.password && freshPair.password.value !== acc.password) {
+                                safeFillInput(freshPair.password, acc.password);
+                            }
+
+                            if (duration >= 1500) clearInterval(passFillInterval);
+                        }, 50);
+
+                        removeVaultDropdown();
+                    });
+
+                    dropdown.appendChild(item);
+                });
+
+                document.body.appendChild(dropdown);
+                const rect = targetInput.getBoundingClientRect();
+                dropdown.style.top = (rect.bottom + window.scrollY) + 'px';
+                dropdown.style.left = (rect.left + window.scrollX) + 'px';
+                dropdown.style.width = rect.width + 'px';
+            }
+
+            function removeVaultDropdown() {
+                const oldContainer = document.querySelector('.webhub-vault-dropdown');
+                if (oldContainer) oldContainer.remove();
+            }
+
+            // Отслеживание фокуса для автозаполнения
+            document.addEventListener('focusin', (e) => {
+                const target = e.target;
+                if (target && target.tagName === 'INPUT') {
+                    const type = target.type;
+                    if (type === 'text' || type === 'email' || type === 'tel' || type === 'password') {
+                        lastFocusedInput = target;
+                        requestCredentials();
+                        setTimeout(() => {
+                            if (document.activeElement === target) showVaultDropdown(target);
+                        }, 150);
+                    }
+                }
+            }, true);
+
+            document.addEventListener('mousedown', (e) => {
+                if (!e.target.classList.contains('webhub-vault-item') && !e.target.classList.contains('webhub-vault-dropdown')) {
+                    removeVaultDropdown();
+                }
+            }, true);
+
+            // ПЕРЕХВАТ КЛИКОВ НА КНОПКИ (Улучшенный под Google/Mail.ru)
+            document.addEventListener('mousedown', (e) => {
+                const target = e.target;
+                if (!target) return;
+
+                // Ищем кнопку вверх по дереву, даже если кликнули на внутренний span с текстом
+                const buttonEl = target.closest('button') || 
+                                 target.closest('[role="button"]') || 
+                                 target.closest('[jsaction*="click"]') ||
+                                 (target.tagName === 'INPUT' && (target.type === 'submit' || target.type === 'button'));
+
+                const isButton = !!buttonEl || target.className?.toString().toLowerCase().includes('button');
+
+                if (isButton) {
+                    captureCurrentCredentials(buttonEl || target);
+                }
+            }, true);
+
+            // Перехват отправки формы через Enter
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && e.target.tagName === 'INPUT') {
+                    captureCurrentCredentials(e.target);
+                }
+            }, true);
+
+            // Обработка ответов от Electron
             window.addEventListener('message', function(event) {
                 if (event.data && event.data.type === 'VAULT_FILL_DATA') {
                     availableAccounts = event.data.accounts || [];
+                    
+                    if (lastFocusedInput && (lastFocusedInput.type === 'password' || lastFocusedInput.name?.toLowerCase().includes('password'))) {
+                        const lastLogin = safeStorage.getItem('webhub_step1_login');
+                        let matchedAcc = null;
+
+                        if (lastLogin) {
+                            matchedAcc = availableAccounts.find(acc => acc.username === lastLogin);
+                        } else if (availableAccounts.length === 1) {
+                            matchedAcc = availableAccounts[0];
+                        }
+
+                        if (matchedAcc) {
+                            safeFillInput(lastFocusedInput, matchedAcc.password);
+                            return; 
+                        }
+                    }
+
+                    if (lastFocusedInput && document.activeElement === lastFocusedInput) {
+                        showVaultDropdown(lastFocusedInput);
+                    }
                 }
             });
 
-            const observer = new MutationObserver(() => {
-                const hasPass = document.querySelector('input[type="password"]');
-                const hasLog = document.querySelector('input[type="text"], input[type="email"], input[type="tel"]');
-                if (hasPass || hasLog) {
-                    clearTimeout(window.vaultTimeout);
-                    window.vaultTimeout = setTimeout(initVault, 300);
-                }
-            });
-
-            if (document.body) {
-                observer.observe(document.body, { childList: true, subtree: true });
-            }
-
-            if (document.readyState === 'loading') {
-                document.addEventListener('DOMContentLoaded', initVault);
-            } else {
-                initVault();
-            }
-            setTimeout(initVault, 1000);
+            requestCredentials();
         })();
 
-        // =======================================================
-        // ТРИГГЕР ЛОКАЛЬНОГО ПЕРЕВОДА СТРАНИЦЫ ДЛЯ TABS.COMPONENT
-        // =======================================================
         window.addEventListener('message', (event) => {
             if (event.data && event.data.action === 'execute-local-translation') {
-                console.log("Webview Injection: Получен внешний сигнал. Вызываем триггер для Tabs Component...");
                 window.dispatchEvent(new CustomEvent('trigger-webhub-translate'));
             }
         });
