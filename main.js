@@ -408,7 +408,7 @@ async function createWindow() {
 app.on('login', (event, webContents, request, authInfo, callback) => {
     if (authInfo.isProxy) {
         event.preventDefault();
-        callback('admin', 'WebHub_Super_Secret_2026'); 
+        callback('login', 'password'); 
     }
 });
 
