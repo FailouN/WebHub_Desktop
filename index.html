@@ -11,6 +11,29 @@
     <link rel="icon" type="image/svg+xml" href="src/img/favico.svg">
     <title>Start Page</title>
   </head>
+  <script>
+        window.addEventListener('DOMContentLoaded', () => {
+            if (window.electronAPI && typeof window.electronAPI.on === 'function') {
+                
+                // Ловим сигнал от main-процесса с PID выбранного окна
+                window.electronAPI.on('start-isolated-audio', ({ pid, sourceId }) => {
+                    console.log(`[UI Renderer] Выбрано окно с PID: ${pid}`);
+
+                    // Здесь мы можем подключить Web Audio API для обработки PCM-данных
+                    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                    const dest = audioCtx.createMediaStreamDestination();
+
+                    // Ловим PCM-чанки звука
+                    if (window.electronAPI.on) {
+                        window.electronAPI.on('isolated-audio-chunk', (pcmBuffer) => {
+                            // Воспроизводим или подмешиваем PCM в итоговый стрим
+                        });
+                    }
+                });
+
+            }
+        });
+    </script>
   <body>
     <!-- 1. Подключаем файл компонента как обычный скрипт -->
     <script src="./src/components/header.component.js"></script>

@@ -1,0 +1,37 @@
+name: Build and Upload Adblock Buffer
+
+on:
+  schedule:
+    # Запуск каждый день в 3:00 ночи по UTC
+    - cron: '0 3 * * *'
+  # Кнопка для ручного запуска в интерфейсе GitHub
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Чеккаут кода
+        uses: actions/checkout@v4
+
+      - name: Установка Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Установка зависимостей
+        run: npm ci
+
+      - name: Сборка adblocker.bin
+        run: node build-blocker.js
+
+      - name: Отправка файла на сервер по SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: root
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          source: "adblocker.bin"
+          target: "/var/www/html/updates/"

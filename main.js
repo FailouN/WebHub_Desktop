@@ -5,6 +5,76 @@ const path = require('path');
 const fs = require('fs');
 const readline = require('readline');
 
+// Вспомогательная функция для извлечения ссылок или путей к файлам из аргументов
+function getFileOrUrl(argv) {
+    // Ищем аргумент, который начинается с http/https или заканчивается на html, htm, pdf
+    const arg = argv.find(a => a.startsWith('http://') || a.startsWith('https://') || /\.(html|htm|pdf)$/i.test(a));
+    if (!arg) return null;
+
+    // Если это не веб-ссылка, значит это локальный путь к файлу. Превращаем его в file:// URL
+    if (!arg.startsWith('http://') && !arg.startsWith('https://')) {
+        try {
+            return require('url').pathToFileURL(path.resolve(arg)).href;
+        } catch (e) {
+            console.error('[Main]: Ошибка конвертации пути в URL:', e);
+            return arg;
+        }
+    }
+    return arg;
+}
+
+// =================================================================
+// 1. НАСТРОЙКА ПУТЕЙ (Делаем в первую очередь!)
+// =================================================================
+const userDataPath = path.join(app.getPath('appData'), 'WebHub-Desktop-profile');
+const gpuSettingsPath = path.join(userDataPath, 'gpu-settings.json');
+
+if (!fs.existsSync(userDataPath)) {
+    fs.mkdirSync(userDataPath, { recursive: true });
+}
+// Переопределяем userData путь ДО проверки синглтона
+app.setPath('userData', userDataPath);
+
+
+// =================================================================
+// 2. ФИКС ДЛЯ ОТКРЫТИЯ НОВЫХ ОКОН (С учетом безопасности)
+// =================================================================
+const gotTheLock = app.requestSingleInstanceLock();
+
+if (!gotTheLock) {
+    app.quit();
+    return; 
+} else {
+    app.on('second-instance', (event, commandLine, workingDirectory) => {
+        console.log('[Main]: Повторный вызов приложения.');
+        
+        // ИЗМЕНЕНО: Ищем среди аргументов и веб-ссылки, и локальные файлы (.html/.pdf)
+        const fileOrUrl = getFileOrUrl(commandLine);
+        
+        if (app.isReady()) {
+            const wins = BrowserWindow.getAllWindows();
+            const mainWin = wins.find(w => w.webContents.getURL().includes('index.html') && !w.isDestroyed());
+            
+            if (mainWin) {
+                // Если главное окно есть, фокусимся на нем
+                if (mainWin.isMinimized()) mainWin.restore();
+                mainWin.focus();
+                
+                if (fileOrUrl) {
+                    // Передаем ссылку или file:// путь во вкладку существующего окна
+                    console.log(`[Main]: Перенаправляю во вкладку: ${fileOrUrl}`);
+                    mainWin.webContents.send('force-open-url', fileOrUrl);
+                } else {
+                    // Если ничего не передано, просто открываем новое окно
+                    createWindow();
+                }
+            } else {
+                createWindow();
+            }
+        }
+    });
+}
+
 // Подключение внешних изолированных модулей
 const { setupBlocker, disableBlocker } = require('./adblocker');
 const { setupScreenShare } = require('./screen-share');
@@ -20,11 +90,7 @@ let vaultService = null;
 
 // Динамически определяем пути для сборки и девелопмента
 const basePath = app.isPackaged ? process.resourcesPath : __dirname;
-
-// Путь к бинарнику Питон (вresources/python-env/python.exe при сборке)
 const pythonExecutable = path.join(basePath, 'python-env', 'python.exe');
-
-// ИСПРАВЛЕНИЕ: Теперь скрипт ищется в корне resources/ вне архива asar
 const enginePath = app.isPackaged 
     ? path.join(process.resourcesPath, 'translator-engine.py') 
     : path.join(__dirname, 'translator-engine.py');
@@ -40,16 +106,6 @@ const { autoUpdater } = require('electron-updater');
 const log = require('electron-log');
 autoUpdater.logger = log;
 autoUpdater.logger.transports.file.level = 'info';
-
-// Определение путей приложения
-const userDataPath = path.join(app.getPath('appData'), 'WebHub-Desktop-profile');
-const gpuSettingsPath = path.join(userDataPath, 'gpu-settings.json');
-
-if (!fs.existsSync(userDataPath)) {
-    fs.mkdirSync(userDataPath, { recursive: true });
-}
-// Переопределяем userData путь на наш кастомный профиль
-app.setPath('userData', userDataPath);
 
 // ИНИЦИАЛИЗАЦИЯ СЕРВИСА ПАРОЛЕЙ
 vaultService = setupVaultService(userDataPath);
@@ -85,108 +141,118 @@ const proxyService = setupProxyService(userDataPath, createApplicationMenu);
 const archiveService = setupArchiveService(userDataPath);
 
 // =================================================================
-// СТРИМИНГОВЫЙ ОБРАБОТЧИК ПЕРЕВОДА (ПОСТРОЧНЫЙ ВЫВОД)
+// ПОСТОЯННЫЙ СТРИМИНГОВЫЙ ОБРАБОТЧИК ПЕРЕВОДА (ДЛЯ АВТОПЕРЕВОДА)
 // =================================================================
-ipcMain.on('translate-text-request', (event, textArray) => {
-    console.log(`[Main]: Стриминг-перевод запущен для ${textArray.length} строк.`);
 
-    // 1. Спавним Python в момент запроса
-    const engine = spawn(pythonExecutable, [enginePath], {
+// Хранилище активных процессов: { [tabId]: engineProcess }
+const activeTranslators = new Map();
+
+// Функция отправки пачки (вынесена отдельно, чтобы использовать повторно)
+const sendBatchToPython = (engine, textArray) => {
+    const BATCH_SIZE = 64; // Оптимальный размер пачки для параллелизма
+    
+    for (let i = 0; i < textArray.length; i += BATCH_SIZE) {
+        const chunk = textArray.slice(i, i + BATCH_SIZE);
+        const batchData = chunk.map((text, index) => ({
+            id: i + index, // Начинаем с 0 для каждой новой отправки (индексы скорректирует фронтенд)
+            text: text
+        }));
+
+        try {
+            engine.stdin.write(JSON.stringify({ type: "batch", items: batchData }) + "\n");
+        } catch (e) {
+            console.error(`[Main]: Ошибка отправки пачки ${i}:`, e);
+        }
+    }
+
+    // Финальный маркер завершения текущей задачи (НЕ убивает процесс)
+    try {
+        engine.stdin.write(JSON.stringify({ type: "signal", text: "__END_OF_BATCH__" }) + "\n");
+    } catch (e) {}
+};
+
+// 1. Главный обработчик запросов на перевод
+ipcMain.on('translate-text-request', (event, { tabId, textArray }) => {
+    console.log(`[Main]: Запрос перевода для вкладки ${tabId}. Строк: ${textArray.length}`);
+
+    let engine = activeTranslators.get(tabId);
+
+    // ЕСЛИ ПРОЦЕСС УЖЕ ЖИВЕТ: просто докидываем ему новый текст (динамика/меню)
+    if (engine && !engine.killed) {
+        console.log(`[Main]: Движок для вкладки ${tabId} уже работает. Отправляю новую пачку.`);
+        sendBatchToPython(engine, textArray);
+        return;
+    }
+
+    // ИНАЧЕ: Спавним новый Python для этой вкладки
+    console.log(`[Main]: Запуск нового инстанса Python для вкладки ${tabId}`);
+    engine = spawn(pythonExecutable, [enginePath], {
         env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
     });
+
+    // Сохраняем в память
+    activeTranslators.set(tabId, engine);
+
+    // ИСПРАВЛЕНИЕ: Отправляем пачку СРАЗУ. Node.js запишет её в буфер пайпа, 
+    // и Питон прочитает её автоматически, как только завершит инициализацию (from_pretrained).
+    sendBatchToPython(engine, textArray);
 
     const rl = readline.createInterface({
         input: engine.stdout,
         terminal: false
     });
 
-    let isEngineReady = false;
-
-    // Таймер безопасности: если процесс намертво зависнет — принудительно тушим через 45 сек
-    const safetyTimeout = setTimeout(() => {
-        console.error("[Main]: Превышено общее время стриминг-перевода. Принудительное закрытие.");
-        if (!engine.killed) engine.kill();
-    }, 45000);
-
-    // Функция, которая поочередно скармливает строки в Python
-    const sendTextsToPython = () => {
-        console.log("[Main]: Движок готов. Начинаю отправку микро-батчами...");
-        
-        const BATCH_SIZE = 20; // Оптимальный размер пачки для параллелизма
-        
-        for (let i = 0; i < textArray.length; i += BATCH_SIZE) {
-            const chunk = textArray.slice(i, i + BATCH_SIZE);
-            
-            // Формируем массив объектов для этой пачки
-            const batchData = chunk.map((text, index) => ({
-                id: i + index, // Сохраняем реальный индекс строки
-                text: text
-            }));
-
-            try {
-                engine.stdin.write(JSON.stringify({ type: "batch", items: batchData }) + "\n");
-            } catch (e) {
-                console.error(`[Main]: Ошибка отправки пачки ${i}:`, e);
-            }
-        }
-
-        // Финальный маркер завершения
-        try {
-            engine.stdin.write(JSON.stringify({ type: "signal", text: "__END_OF_BATCH__" }) + "\n");
-        } catch (e) {}
-    };
-
     engine.on('error', (err) => {
-        console.error("[Main CRITICAL]: Не удалось запустить локальный Python!", err);
-        clearTimeout(safetyTimeout);
-        event.reply('translate-text-final', { success: false, error: err.message });
+        console.error(`[Main CRITICAL]: Ошибка запуска Python для вкладки ${tabId}:`, err);
+        activeTranslators.delete(tabId);
+        event.reply('translate-text-final', { success: false, tabId: tabId, error: err.message });
     });
 
-    // Слушаем сообщения об ошибках и маркеры готовности из stderr
+    // Слушаем логи ошибок (чисто для дебага в консоли Electron)
     engine.stderr.on('data', (data) => {
         const message = data.toString().trim();
-        
-        // Фильтруем тонны логов токенизатора, чтобы не забивать консоль Electron
         if (!message.includes('[Debug]: TOKENS') && !message.includes('[Debug]: OUTPUT TOKENS')) {
-            console.error(`[Python Stderr]: ${message}`);
-        }
-        
-        // Проверяем готовность движка по вашим маркерам
-        if (!isEngineReady && (message.includes('Marian EN->RU loaded') || message.includes('Translator engine is ready'))) {
-            isEngineReady = true;
-            sendTextsToPython();
+            console.error(`[Python Stderr ${tabId}]: ${message}`);
         }
     });
 
-    // Построчно ловим ответы из stdout Питона
+    // Построчно ловим ответы от Python
     rl.on('line', (line) => {
         try {
             if (!line.startsWith('{')) return;
             const response = JSON.parse(line);
 
             if (response.status === 'chunk') {
-                // МГНОВЕННО пересылаем готовую строчку обратно в Renderer (на веб-страницу)
+                // МГНОВЕННО пересылаем готовую строчку обратно в Renderer, указывая tabId
                 event.reply('translate-text-chunk', {
+                    tabId: tabId,
                     id: response.id,
                     translated: response.translated
                 });
             } 
             else if (response.status === 'completed') {
-                console.log("[Main]: Python подтвердил успешную обработку всей страницы.");
-                clearTimeout(safetyTimeout);
-                if (!engine.killed) engine.kill();
+                console.log(`[Main]: Python успешно перевел текущую пачку для вкладки ${tabId}. Ждет новых строк...`);
+                event.reply('translate-text-final', { success: true, tabId: tabId });
             }
         } catch (e) {
-            console.error("[Main]: Ошибка парсинга потоковой строки от Python:", e);
+            console.error(`[Main]: Ошибка парсинга потоковой строки от Python для ${tabId}:`, e);
         }
     });
 
     engine.on('exit', (code) => {
-        console.log(`[Main]: Стриминг-процесс Python успешно завершен (Код: ${code}). ОЗУ полностью очищена.`);
-        clearTimeout(safetyTimeout);
-        // Оповещаем фронтенд, что перевод завершен и можно убрать индикаторы загрузки, если они есть
-        event.reply('translate-text-final', { success: true });
+        console.log(`[Main]: Процесс Python для вкладки ${tabId} завершен (Код: ${code}). ОЗУ очищена.`);
+        activeTranslators.delete(tabId);
     });
+});
+
+// 2. ОБЯЗАТЕЛЬНЫЙ ОБРАБОТЧИК: Убийство процесса (Вызывать при закрытии вкладки!)
+ipcMain.on('kill-translator-for-tab', (event, tabId) => {
+    const engine = activeTranslators.get(tabId);
+    if (engine && !engine.killed) {
+        engine.kill();
+        activeTranslators.delete(tabId);
+        console.log(`[Main]: Процесс Python для вкладки ${tabId} принудительно убит (Вкладка закрыта).`);
+    }
 });
 
 const AGENTS = {
@@ -349,7 +415,8 @@ async function createWindow() {
             contextIsolation: true,
             sandbox: true,
             preload: path.join(__dirname, 'preload.js'),
-            backgroundThrottling: false
+            backgroundThrottling: false,
+            plugins: true
         }
     });
 
@@ -400,15 +467,15 @@ async function createWindow() {
         setupScreenShare(ses);
     });
 
-    setUserAgent('desktop');
     await proxyService.applyProxySettings();
     win.loadFile('index.html');
+    return win;
 }
 
 app.on('login', (event, webContents, request, authInfo, callback) => {
     if (authInfo.isProxy) {
         event.preventDefault();
-        callback('login', 'password'); 
+        callback('admin', 'WebHub_Super_Secret_2026'); 
     }
 });
 
@@ -427,11 +494,44 @@ function broadcast(channel, data = null) {
 
 app.whenReady().then(async () => {
     setupShortcutService(userDataPath, broadcast, archiveService);
+  
+    setUserAgent('desktop');
+
+    // =================================================================
+    // 1. РЕГИСТРАЦИЯ БРАУЗЕРА В СИСТЕМЕ (Новое)
+    // =================================================================
+    if (process.defaultApp) {
+        // Настройки для среды разработки (npm start)
+        if (process.argv.length >= 2) {
+            app.setAsDefaultProtocolClient('http', process.execPath, [path.resolve(process.argv[1])]);
+            app.setAsDefaultProtocolClient('https', process.execPath, [path.resolve(process.argv[1])]);
+        }
+    } else {
+        // Настройки для уже собранного .exe
+        app.setAsDefaultProtocolClient('http');
+        app.setAsDefaultProtocolClient('https');
+    }
+    // =================================================================
 
     await proxyService.applyProxySettings();
     createApplicationMenu();
-    await createWindow();
 
+    // 2. ИЗМЕНЕНО: Проверяем, прилетела ли веб-ссылка ИЛИ локальный файл (html/pdf) при первом старте
+    const fileOrUrl = getFileOrUrl(process.argv);
+
+    // Запускаем окно
+    const win = await createWindow();
+
+    // 3. ИЗМЕНЕНО: Если файл или ссылка были найдены, передаем их во вкладку после загрузки интерфейса
+    if (fileOrUrl && win) {
+        win.webContents.once('did-finish-load', () => {
+            win.webContents.send('force-open-url', fileOrUrl);
+        });
+    }
+
+    // =================================================================
+    // ТВОИ СУЩЕСТВУЮЩИЕ ОБРАБОТЧИКИ (Сохранены)
+    // =================================================================
     ipcMain.on('open-new-tab', (event, url) => {
         const mainWin = BrowserWindow.getAllWindows().find(w => w.webContents.getURL().includes('index.html') && !w.isDestroyed());
         if (mainWin) mainWin.webContents.send('force-open-url', url);

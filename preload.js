@@ -2,6 +2,9 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 const validChannels = [
     'archive-updated-external-thumb',
+    'translate-text-final',
+    'kill-translator-for-tab',
+    'translate-text-chunk',
     'translate-text-request',
     'toggle-shortcuts-window',
     'get-shortcuts-config',

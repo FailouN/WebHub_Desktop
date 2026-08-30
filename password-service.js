@@ -117,13 +117,28 @@ function setupPasswordService(userDataPath, vaultService) {
     ipcMain.on('save-password', (event, entry) => {
         let list = readAndDecryptVault();
 
+        // --- ЕДИНАЯ НОРМАЛИЗАЦИЯ URL С HTTPS ---
+        let cleanedUrl = entry.url ? entry.url.trim() : '';
+        if (cleanedUrl && !/^https?:\/\//i.test(cleanedUrl)) {
+            cleanedUrl = 'https://' + cleanedUrl;
+        } else if (cleanedUrl.startsWith('http://')) {
+            cleanedUrl = cleanedUrl.replace(/^http:\/\//i, 'https://');
+        }
+
+        try {
+            const parsed = new URL(cleanedUrl);
+            cleanedUrl = parsed.origin;
+        } catch (e) {
+            console.error("[Password Service] Ошибка нормализации URL:", e);
+        }
+
         if (entry.id) {
             // Редактирование существующей записи
             const index = list.findIndex(p => p.id === entry.id);
             if (index !== -1) {
                 list[index] = {
                     id: entry.id,
-                    url: entry.url,
+                    url: cleanedUrl,
                     username: entry.login, // сопоставляем login из формы с username в базе
                     password: entry.password
                 };
@@ -132,7 +147,7 @@ function setupPasswordService(userDataPath, vaultService) {
             // Создание новой записи вручную через менеджер
             list.push({
                 id: Date.now(),
-                url: entry.url,
+                url: cleanedUrl,
                 username: entry.login,
                 password: entry.password
             });
@@ -154,6 +169,133 @@ function setupPasswordService(userDataPath, vaultService) {
             event.reply('passwords-updated');
         }
     });
+
+    // 4. Импортировать пароли из CSV файла экспорта Firefox
+    ipcMain.on('import-passwords-csv', async (event) => {
+        const { dialog } = require('electron');
+        
+        const result = await dialog.showOpenDialog(passwordWin, {
+            title: 'Выберите файл экспорта паролей Firefox (.csv)',
+            filters: [{ name: 'Файлы CSV', extensions: ['csv'] }],
+            properties: ['openFile']
+        });
+
+        if (result.canceled || result.filePaths.length === 0) return;
+
+        try {
+            const filePath = result.filePaths[0];
+            const content = fsModule.readFileSync(filePath, 'utf8');
+            
+            const lines = content.split(/\r?\n/);
+            if (lines.length < 2) return; 
+
+            // Определяем индексы колонок на основе заголовков
+            const headers = parseCsvLine(lines[0]);
+            const urlIdx = headers.indexOf('url');
+            const userIdx = headers.indexOf('username');
+            const passIdx = headers.indexOf('password');
+
+            if (urlIdx === -1 || userIdx === -1 || passIdx === -1) {
+                dialog.showErrorBox('Ошибка импорта', 'Неверный формат CSV. Файл должен содержать колонки "url", "username" и "password".');
+                return;
+            }
+
+            let importedCount = 0;
+            let currentList = readAndDecryptVault();
+
+            for (let i = 1; i < lines.length; i++) {
+                if (!lines[i].trim()) continue;
+                
+                const columns = parseCsvLine(lines[i]);
+                if (columns.length <= Math.max(urlIdx, userIdx, passIdx)) continue;
+
+                let url = columns[urlIdx];
+                const username = columns[userIdx];
+                const password = columns[passIdx];
+
+                // Отсекаем служебные страницы Firefox
+                if (url.startsWith('chrome://') || url.startsWith('about:')) continue;
+
+                // --- ИСПРАВЛЕНО: Приведение URL к единому виду С ОБЯЗАТЕЛЬНЫМ HTTPS:// ---
+                let cleanedUrl = url ? url.trim() : '';
+                if (cleanedUrl && !/^https?:\/\//i.test(cleanedUrl)) {
+                    cleanedUrl = 'https://' + cleanedUrl;
+                } else if (cleanedUrl.startsWith('http://')) {
+                    cleanedUrl = cleanedUrl.replace(/^http:\/\//i, 'https://');
+                }
+
+                try {
+                    const parsedUrl = new URL(cleanedUrl);
+                    cleanedUrl = parsedUrl.origin; // Сохранит в виде 'https://domain.com'
+                } catch (e) {
+                    console.error("[CSV Import] Не удалось распарсить URL:", cleanedUrl);
+                }
+
+                // Проверка на дубликаты по комбинации URL + Логин
+                const exists = currentList.some(item => item.url === cleanedUrl && item.username === username);
+                
+                if (!exists) {
+                    currentList.push({
+                        id: Date.now() + importedCount, 
+                        url: cleanedUrl,
+                        username: username,
+                        password: password
+                    });
+                    importedCount++;
+                }
+            }
+
+            if (importedCount > 0) {
+                const success = encryptAndSaveVault(currentList);
+                if (success) {
+                    event.reply('passwords-updated');
+                    dialog.showMessageBox(passwordWin, {
+                        type: 'info',
+                        title: 'Импорт завершен',
+                        message: `Успешно импортировано новых аккаунтов: ${importedCount}`
+                    });
+                }
+            } else {
+                dialog.showMessageBox(passwordWin, {
+                    type: 'info',
+                    title: 'Импорт',
+                    message: 'Новых паролей для импорта не найдено (возможно, они уже есть в базе).'
+                });
+            }
+
+        } catch (err) {
+            console.error("Ошибка при импорте CSV:", err);
+            dialog.showErrorBox('Ошибка', 'Не удалось прочитать или распарсить файл CSV.');
+        }
+    });
+
+    // Вспомогательная функция разбора строки CSV с поддержкой экранирования кавычек
+    function parseCsvLine(line) {
+        const result = [];
+        let current = '';
+        let inQuotes = false;
+        
+        for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+            const nextChar = line[i + 1];
+            
+            if (char === '"') {
+                if (inQuotes && nextChar === '"') {
+                    current += '"';
+                    i++;
+                } else {
+                    inQuotes = !inQuotes;
+                }
+            } else if (char === ',' && !inQuotes) {
+                result.push(current.trim());
+                current = '';
+            } else {
+                current += char;
+            }
+        }
+        result.push(current.trim());
+        return result;
+    }
 
     // Переключатель окна
     ipcMain.on('toggle-password-window', (event) => {

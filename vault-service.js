@@ -87,16 +87,21 @@ function setupVaultService(userDataPath) {
         return null;
     }
 
-    // Функция сохранения/обновления аккаунта (вызывается из main.js)
-    // Функция сохранения/обновления аккаунта (вызывается из main.js)
+    // Функция сохранения/обновления аккаунта при заходе на сайт (вызывается из main.js)
     function saveCredentials(url, username, password) {
         let list = readVault();
 
-        // Очищаем URL: оставляем только протокол + домен (например, https://accounts.google.com)
-        let cleanedUrl = url;
+        // --- ЕДИНАЯ НОРМАЛИЗАЦИЯ URL С HTTPS ---
+        let cleanedUrl = url ? url.trim() : '';
+        if (cleanedUrl && !/^https?:\/\//i.test(cleanedUrl)) {
+            cleanedUrl = 'https://' + cleanedUrl;
+        } else if (cleanedUrl.startsWith('http://')) {
+            cleanedUrl = cleanedUrl.replace(/^http:\/\//i, 'https://');
+        }
+
         try {
-            const parsed = new URL(url);
-            cleanedUrl = parsed.origin; // заберёт только 'https://accounts.google.com'
+            const parsed = new URL(cleanedUrl);
+            cleanedUrl = parsed.origin; // заберёт только 'https://domain.com'
         } catch (e) {
             console.error(`[Vault] Не удалось распарсить URL: ${url}, сохраняем как есть.`);
         }

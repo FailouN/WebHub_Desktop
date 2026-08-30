@@ -99,7 +99,7 @@ for line in sys.stdin:
         if data.get("type") == "signal" and data.get("text") == "__END_OF_BATCH__":
             print(json.dumps({"status": "completed"}, ensure_ascii=False))
             sys.stdout.flush()
-            break
+            continue
 
         if data.get("type") == "batch":
             items = data.get("items", [])

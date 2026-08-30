@@ -9,14 +9,54 @@ window.tabsStyles = `
     display: block; /* Чтобы он вел себя как полноценный контейнер */
     }
  
-    #full-window {
+ #tab-preview-tooltip {
+    position: absolute;
+    bottom: 50px;
+    transform: translateX(-50%);
+    background: rgba(20, 20, 25, 0.9);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 8px;
+    padding: 6px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
     display: none;
+    flex-direction: column;
+    gap: 6px;
+    z-index: 9999;
+    pointer-events: none;
+    width: 340px; /* Уменьшенная ширина */
+}
+
+#tab-preview-tooltip.visible {
+    display: flex;
+}
+
+#tab-preview-tooltip .preview-title {
+    font-size: 14px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.9);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding: 0 2px;
+}
+
+#tab-preview-tooltip .preview-body img {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 16 / 9; /* Пропорции 16:9 */
+    object-fit: cover;
+    border-radius: 4px;
+    background: #111;
+    display: block;
+}
+
+  #full-window {
+    display: flex;
     position: fixed;
-    /* Используем переменную. По умолчанию 32px */
     top: var(--win-top, 32px); 
     left: 0px;
     right: 0px;
-    /* В обычном режиме снизу 60px под статус-бар */
     bottom: 60px; 
     
     background: #1a1b26;
@@ -26,7 +66,125 @@ window.tabsStyles = `
     z-index: 5000;
     flex-direction: column;
     overflow: hidden;
-    transition: top 0.2s, bottom 0.2s; /* Плавный переход */
+
+    will-change: transform, opacity, filter;
+
+    /* Свернутое состояние (Genie Effect): окно сжато в миниатюрную полоску с подсветкой */
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transform: scale(0.02, 0.08) translateY(20px);
+    filter: brightness(1.5) saturate(1.3);
+
+    /* Агрессивная нелинейная кривая для эффекта "всасывания" */
+    transition: transform 0.38s cubic-bezier(0.4, 0, 0.2, 1),
+                opacity 0.22s ease-in,
+                filter 0.38s ease-out,
+                visibility 0.38s step-end,
+                top 0.2s ease, 
+                bottom 0.2s ease,
+                border-radius 0.35s ease;
+}
+
+/* Развернутое окно */
+#full-window.is-open {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transform: scale(1, 1) translateY(0);
+    filter: brightness(1) saturate(1);
+
+    /* Пружинящий вылет из иконки (создаёт эффект выплёскивания) */
+    transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1),
+                opacity 0.5s ease-out,
+                filter 0.5s ease-in,
+                visibility 0s step-start,
+                top 0.3s ease, 
+                bottom 0.3s ease,
+                border-radius 0.5s ease;
+}
+
+#full-container webview {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    will-change: transform, opacity;
+    transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1),
+                opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transform: scale(0.97);
+}
+
+/* Базовое состояние свайпа */
+#full-container webview {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    will-change: transform, opacity;
+    
+    /* step-end держит visibility: visible во время анимации ухода вкладки */
+    transition: transform 0.70s cubic-bezier(0.16, 1, 0.3, 1),
+                opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1),
+                visibility 0.70s step-end;
+                
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transform: translateX(100%); /* По умолчанию за правым краем */
+}
+
+/* Вкладки, находящиеся ЛЕВЕЕ активной */
+#full-container webview.slide-left {
+    transform: translateX(-100%);
+}
+
+/* Вкладки, находящиеся ПРАВЕЕ активной */
+#full-container webview.slide-right {
+    transform: translateX(100%);
+}
+
+/* АКТИВНАЯ вкладка (по центру) */
+#full-container webview.active-wv {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transform: translateX(0);
+    
+    /* step-start включает visibility мгновенно при появлении */
+    transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+                opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+                visibility 0s step-start;
+}
+
+#full-container webview.is-spawning {
+    transition: none !important;
+    /* Точка старта вылета берется из координат курсора */
+    transform-origin: var(--spawn-x, center) var(--spawn-y, center);
+    animation: wvExpandFromCursor 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
+}
+
+@keyframes wvExpandFromCursor {
+    0% {
+        opacity: 0;
+        /* Стартовый размер ~10px относительно полноэкранного окна */
+        transform: scale(0.01);
+        filter: blur(10px);
+    }
+    30% {
+        /* Прозрачность уходит быстро, чтобы точку 10px было видно сразу */
+        opacity: 1;
+    }
+    100% {
+        opacity: 1;
+        transform: scale(1);
+        filter: blur(0px);
+    }
 }
 
 :host-context(body.is-fullscreen) #full-window {
