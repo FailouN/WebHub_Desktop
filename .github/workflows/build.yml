@@ -2,9 +2,7 @@ name: Build and Upload Adblock Buffer
 
 on:
   schedule:
-    # Запуск каждый день в 3:00 ночи по UTC
     - cron: '0 3 * * *'
-  # Кнопка для ручного запуска в интерфейсе GitHub
   workflow_dispatch:
 
 jobs:
@@ -18,7 +16,7 @@ jobs:
       - name: Установка Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22 # Используем LTS версию Node.js
           cache: 'npm'
 
       - name: Установка зависимостей
