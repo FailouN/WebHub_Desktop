@@ -10,10 +10,7 @@ async function build() {
         'https://easylist.to/easylist/easylist.txt',
         'https://easylist.to/easylist/easyprivacy.txt',
         'https://easylist-downloads.adblockplus.org/ruadlist+easylist.txt',
-        // Дополнительные фильтры против рекламы в плеере YouTube:
-        'https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/quick-fixes.txt',
-        'https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/filters.txt',
-        'https://filters.adtidy.org/extension/ublock/filters/2.txt' // AdGuard Base
+        'https://easylist-downloads.adblockplus.org/easylistcookie.txt'
     ]);
 
     const buffer = blocker.serialize();
