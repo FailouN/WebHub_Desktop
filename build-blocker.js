@@ -10,7 +10,6 @@ async function build() {
         'https://easylist.to/easylist/easylist.txt',
         'https://easylist.to/easylist/easyprivacy.txt',
         'https://easylist-downloads.adblockplus.org/ruadlist+easylist.txt',
-        'https://easylist-downloads.adblockplus.org/easylistcookie.txt'
     ]);
 
     const buffer = blocker.serialize();
