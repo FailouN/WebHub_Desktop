@@ -20,7 +20,7 @@ function setupProxyService(userDataPath, createApplicationMenu) {
         const bypassList = uniqueBypass.join(", ");
 
         const proxyConfig = {
-            proxyRules: "http://77.239.104.196:54921", 
+            proxyRules: "http://**.***.***.***:****", 
             proxyBypassRules: bypassList
         };
 
