@@ -16,20 +16,20 @@ jobs:
       - name: Установка Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22 # Используем LTS версию Node.js
+          node-version: 22
           cache: 'npm'
 
       - name: Установка зависимостей
         run: npm ci
 
-      - name: Сборка adblocker.bin
+      - name: Сборка файлов блокировки
         run: node build-blocker.js
 
-      - name: Отправка файла на сервер по SCP
+      - name: Отправка файлов на сервер по SCP
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.SERVER_IP }}
           username: root
           key: ${{ secrets.SERVER_SSH_KEY }}
-          source: "adblocker.bin"
+          source: "adblocker.bin,android-filters.txt"
           target: "/var/www/html/updates/"
