@@ -5,11 +5,6 @@ const fs = require('fs');
 const FILTER_URLS = [
     'https://easylist.to/easylist/easyprivacy.txt',
     'https://easylist-downloads.adblockplus.org/ruadlist+easylist.txt',
-    'https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/filters.txt',
-    'https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/privacy.txt',
-    'https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/annoyances.txt',
-    'https://pgl.yoyo.org/adservers/serverlist.php?hostformat=hosts&showintro=0&mimetype=plaintext',
-    'https://raw.githubusercontent.com/AdguardTeam/FiltersRegistry/master/filters/filter_3_Spyware/filter.txt',
 ];
 
 async function build() {
