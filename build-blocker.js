@@ -6,6 +6,9 @@ const FILTER_URLS = [
     'https://easylist.to/easylist/easylist.txt',
     'https://easylist.to/easylist/easyprivacy.txt',
     'https://easylist-downloads.adblockplus.org/ruadlist+easylist.txt',
+    'https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/filters.txt',
+    'https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/privacy.txt',
+    'https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/annoyances.txt',
 ];
 
 async function build() {
