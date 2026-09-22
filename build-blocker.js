@@ -7,19 +7,6 @@ const FILTER_URLS = [
     'https://easylist-downloads.adblockplus.org/ruadlist+easylist.txt',
     'https://easylist.to/easylist/easyprivacy.txt',
 
-    // --- AdGuard (Отлично справляются с RU-рекламой и YouTube) ---
-    'https://filters.adtidy.org/windows/filters/2.txt',   // AdGuard Base
-    'https://filters.adtidy.org/windows/filters/1.txt',   // AdGuard Russian
-    'https://filters.adtidy.org/windows/filters/3.txt',   // AdGuard Tracking Protection
-    'https://filters.adtidy.org/windows/filters/11.txt',  // AdGuard Mobile Ads
-
-    // --- uBlock Origin Core & Fixes (Критично для YouTube и обходов) ---
-    'https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/filters.txt',
-    'https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/badware.txt',
-    'https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/privacy.txt',
-    'https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/quick-fixes.txt', // Частые фиксы для YouTube
-    'https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/unbreak.txt',
-
     // --- Защита от блокировщиков адблока (Anti-Adblock) ---
     'https://easylist-downloads.adblockplus.org/antiadblockfilters.txt',
 ];
