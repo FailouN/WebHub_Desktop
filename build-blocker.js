@@ -4,32 +4,19 @@ const fs = require('fs');
 
 const FILTER_URLS = [
     // --- Базовые и RU-сегмент ---
-    // Расширенный список для RU-сегмента + EasyList
     'https://easylist-downloads.adblockplus.org/ruadlist+easylist.txt',
-    // Официальные EasyList и EasyPrivacy
     'https://easylist.to/easylist/easylist.txt',
     'https://easylist.to/easylist/easyprivacy.txt',
 
-    // --- Anti-Adblock (Обход блокировки) ---
-    // Специализированный список для обхода систем обнаружения блокировщиков
+    // --- Anti-Adblock ---
     'https://easylist-downloads.adblockplus.org/antiadblockfilters.txt',
-    // Дополнительные фильтры против anti-adblock и для uBlock Origin
     'https://ublocko.github.io/uBO-Filters/uF.txt',
-
-    // --- Улучшение приватности и удаление помех ---
-    // Скрывает cookie-уведомления, соц. виджеты, чаты и прочие помехи
-    'https://secure.fanboy.co.nz/fanboy-annoyance.txt',
-    // Очищает страницы от визуального мусора (рекомендации, "read more" и т.п.)
-    'https://raw.githubusercontent.com/yokoffing/filterlists/main/annoyance_list.txt',
-
-    // --- Китайский сегмент (высокая эффективность) ---
-    // Очень мощный список, часто ловит то, что пропускают другие
-    'https://anti-ad.net/easylist.txt',
 ];
 
 async function build() {
-    console.log('Начинаю сборку adblocker.bin с поддержкой YouTube...');
+    console.log('Начинаю сборку adblocker.bin...');
 
+    // Создаем блокировщик
     const blocker = await ElectronBlocker.fromLists(fetch, FILTER_URLS);
 
     const buffer = blocker.serialize();
