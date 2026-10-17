@@ -5,12 +5,8 @@ const fs = require('fs');
 const FILTER_URLS = [
     // --- Базовые и RU-сегмент ---
     'https://easylist-downloads.adblockplus.org/ruadlist+easylist.txt',
-    'https://easylist.to/easylist/easylist.txt',
     'https://easylist.to/easylist/easyprivacy.txt',
 
-    // --- Anti-Adblock ---
-    'https://easylist-downloads.adblockplus.org/antiadblockfilters.txt',
-    'https://ublocko.github.io/uBO-Filters/uF.txt',
 ];
 
 async function build() {
